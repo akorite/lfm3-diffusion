@@ -1,0 +1,52 @@
+# G4 conversion runbook
+
+Phase 0 caches teacher distributions; Phase 1 trains the diffusion objective.
+Both run on one named Colab session so the VM survives between calls.
+
+```bash
+colab new -s lfm3-g4 --gpu G4          # RTX PRO 6000 Blackwell, 96 GB
+colab exec -s lfm3-g4 -f bootstrap.py  # torch + transformers>=5.20 + repo
+```
+
+## Phase 0 — teacher cache
+
+```bash
+python scripts/build_teacher_cache.py \
+  --dataset <hf-id> --prompt-field prompt --response-field response \
+  --out /content/cache --max-tokens 150_000_000 --shard-tokens 4_000_000
+```
+
+Writes `shard-*.bin` (68 B/token) plus `index.jsonl`; `meta.json` records the
+token count and rate, and a rerun resumes from the index instead of restarting.
+
+## Phase 1 — training
+
+```bash
+python scripts/train_g4.py --cache /content/cache --dataset <hf-id> \
+  --config configs/g4_300m.yaml --out /content/run
+```
+
+## Gates (abort before spending Phase-1 compute when one fails)
+
+| Gate | Threshold | Measured 2026-11-08 on G4 |
+|---|---|---|
+| Corpus throughput | `>= 22k` tok/s (BF16 `>= 11k` on A100) | **~4.6k** — fails |
+| Peak VRAM | `< 65 GB` without activation checkpointing | **90 GB** at 4x4096 — fails |
+| Finite loss over the smoke | no NaN/Inf | passes |
+
+Both failures point at the same cause: every layer materializes a dense
+`[B, 1, S, S]` additive mask per step. `lfm3_dlm/masks.py::dlm_mask_mod`
+exists for the FlexAttention path and is not wired up yet; that plus
+activation checkpointing is the work required before a full run.
+
+FP8 frozen MLPs measured **no speedup** (9.1k vs 9.3k tok/s) and more VRAM,
+because the input-gradient copy keeps the bf16 weights resident; the FP8 path
+is opt-in (`fp8_mlps: true`) until it earns its place.
+
+## Stopping
+
+```bash
+colab stop -s lfm3-g4
+```
+
+Never touch an operator's existing session.
