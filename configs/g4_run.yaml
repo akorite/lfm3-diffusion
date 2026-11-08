@@ -27,5 +27,5 @@ warmup_steps: 600
 phase1_boundary_tokens: 60_000_000   # physical tokens (~2x corpus at P=R)
 oput_ratio: 0.0        # phase-2 OPUT doubles some steps; off for the budget run
 
-checkpoint_interval_tokens: 25_000_000
+checkpoint_interval_tokens: 4_000_000   # ~450 steps: a chunked run loses <=10 min
 checkpoint_dir: checkpoints/g4_run
