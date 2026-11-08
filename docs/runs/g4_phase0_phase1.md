@@ -289,6 +289,36 @@ model's own top-1 agrees, so parity is 1.000 by construction. Its speed is set
 by **draft acceptance**, which is why the endgame sweeps `isd_width` 2/4/8
 rather than any SPD knob.
 
+
+## Full battery at the 25M-token checkpoint (dry run of the endgame)
+
+Run against `ckpt-25004750` (~2,700 of 7,000 steps) to validate every endgame
+script before the final weights exist. Values are the harnesses' own output.
+
+| criterion | measurement | value |
+|---|---|---|
+| 1 parity | `parity_sweep.py`, 4 prompts x 24 tokens, ar_trust mean | **1.000** (worst 1.000) |
+| 2 speed | same sweep, mean TPF | ar_trust_2 1.27, **ar_trust_4 1.38**, ar_trust_8 1.38 |
+| 3 quality | `heldout_eval.py`, 31 rows that fit | trained **4.779** vs base **15.717** |
+| 4 tests | `pytest tests/ -q` | 98 passed |
+| 5 export | `finish_run.py` export step | rc=0, samples coherent |
+
+Per-config parity/TPF, straight from `parity.md`:
+
+| config | mean parity | worst parity | mean TPF |
+|---|---|---|---|
+| ar_trust_2 | 1.000 | 1.000 | 1.27 |
+| ar_trust_4 | 1.000 | 1.000 | 1.38 |
+| ar_trust_8 | 1.000 | 1.000 | 1.38 |
+| spd_0.90 | 0.167 | 0.042 | 1.60 |
+| spd_0.99 | 0.198 | 0.042 | 1.55 |
+| hybrid_auto | 0.167 | 0.042 | 1.60 |
+
+Two readings. Parity is exact and stable, so criterion 1 is already satisfied.
+Speed is the open one: 1.38 against a 1.5 bar, but it moved 1.07 -> 1.38 as the
+model went from 4M to 25M tokens, which is the direction that matters with
+4,300 steps still to run.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
