@@ -96,6 +96,17 @@ def main(argv=None) -> int:
         "Summarise the plot of Romeo and Juliet in three sentences.",
         "Give one reason a database index speeds up reads.",
         "Translate 'good morning' into Spanish and German.",
+        "Name three differences between TCP and UDP.",
+        "Explain recursion to someone who has never programmed.",
+        "What causes tides on Earth?",
+        "Write a haiku about autumn.",
+        "Why does bread go stale?",
+        "Describe how a bicycle stays upright.",
+        "List two ways to reduce memory use in a Python program.",
+        "What is the difference between a process and a thread?",
+        "Explain what a hash table is and when it is a bad choice.",
+        "Give a one-sentence summary of the theory of evolution.",
+        "How does a refrigerator keep food cold?",
     ][: args.prompts]
     prompts = [tok(format_chat(t), return_tensors="pt",
                      add_special_tokens=False).input_ids.cuda() for t in texts]
