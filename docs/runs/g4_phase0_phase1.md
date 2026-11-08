@@ -161,6 +161,11 @@ The first run was stopped and the cache rebuilt, because training on raw-text
 prompts teaches the model to continue raw text — exactly the failure the base
 model shows.
 
+**Restarted run (final):** cache `cache3` (8M tokens, capped at one packed row
+per answer), training `run4` (7,000 steps), same frozen-MLP / mask-row-only
+configuration, same supervisor-style endgame. The first run's `cache2`/`run3`
+artifacts are kept only for comparison.
+
 ## Early parity probe (checkpoint at 25M physical tokens, ~step 2,700)
 
 Two prompts x 16 tokens, block 8 / small 4, measured against AR greedy with no
