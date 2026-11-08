@@ -79,7 +79,8 @@ def heldout_loss(model, examples, s_phys, block_size):
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--weights", required=True)
+    ap.add_argument("--weights", default=None,
+                    help="trained state dict; omit to score the base model")
     ap.add_argument("--data-file", default="/content/data/chat.jsonl")
     ap.add_argument("--start", type=int, default=30000,
                     help="first corpus row the cache never consumed")
@@ -90,7 +91,8 @@ def main(argv=None) -> int:
 
     tok = load_tokenizer()
     model = Lfm3ForCausalLM.from_pretrained("LiquidAI/LFM3-1.7B", dtype=torch.bfloat16)
-    model.load_state_dict(torch.load(args.weights, map_location="cpu"), strict=False)
+    if args.weights:
+        model.load_state_dict(torch.load(args.weights, map_location="cpu"), strict=False)
     model = model.cuda().eval()
 
     examples = build_examples(args.data_file, args.start, args.count, tok, args.s_phys)
