@@ -407,7 +407,7 @@ checkpoint verified tensor-identical to `ckpt-25004750/checkpoint.pt["model"]`.
 | 3 held-out <= base | `heldout_eval.py`, 31 rows | **4.779** vs base **15.717** | met |
 | 4 tests | `pytest tests/ -q` | **98 passed** | met |
 | 5 export loads | `assert_export.py` | 24 layers, vocab 128000, mask row != pad row | met |
-| 6 artifacts pulled | `/home/ubuntu/lfm3-artifacts/` | see below | met |
+| 6 artifacts pulled | `/home/ubuntu/lfm3-artifacts/` | export.tar.gz (md5 34391cc0c44a44f7c6b28ba17b9d0981f) + final-weights.pt + the JSONs | met |
 
 Capability drift, which the diffusion loss cannot show: plain causal
 next-token loss over the same 31 rows (23,095 scored tokens).
