@@ -319,6 +319,31 @@ Speed is the open one: 1.38 against a 1.5 bar, but it moved 1.07 -> 1.38 as the
 model went from 4M to 25M tokens, which is the direction that matters with
 4,300 steps still to run.
 
+
+## Acceptance self-distillation: two formulations, both negative
+
+The throughput lever is draft acceptance, so `scripts/rl_accept.py` optimises it
+directly, expert-iteration style: the model's own greedy continuation is the
+target, the masked-block prediction is the policy, cross-entropy on the masked
+slots is the signal. Both phases warm-started from `ckpt-25004750` (TPF 1.38)
+and ran 1,500 steps at lr 1.5e-5, frozen MLPs.
+
+| row construction | in-batch mask agreement | ar_trust parity | ar_trust TPF |
+|---|---|---|---|
+| start (`ckpt-25004750`) | — | 1.000 | **1.38** |
+| prompt + noisy-stream MASK x4, bidirectional | 0.56-0.81 | 1.000 | 1.06-1.09 |
+| prompt + pending token + causal MASK x4 (mirrors the draft feed) | 0.58-1.00 | **0.833** | 1.17-1.20 |
+
+Both made the real criterion worse while the training metric improved, and the
+second broke parity (near-tie flips under bfloat16 once the model is pushed off
+its supervised optimum). The conclusion is not "RL does not work"; it is that
+optimising agreement on a proxy row destroys the calibration the verifier
+depends on. Neither artifact is used: `run5/rl1500.pt` and `run5/rl_draft.pt`
+are recorded and discarded, and the pre-RL weights remain the best model.
+
+The lever that demonstrably moved TPF is supervised scale: 1.07 at 4M tokens to
+1.38 at 25M. That is where the remaining compute goes.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
