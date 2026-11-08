@@ -233,6 +233,22 @@ bar — and the model's own proposals are simply not accepted yet. This is a
 draft-quality gap, not a draft-path bug: the fix is a model that predicts
 masked-block tokens better, which is exactly what the running training buys.
 
+**Why the drafts are rejected (measured at ckpt-4003234).** Ask the model to fill
+a fully masked block from the prompt alone — the exact conditioning the sampler's
+mask-draft uses on its first step — and compare its argmax with the AR
+continuation:
+
+| metric | value |
+|---|---|
+| positions compared | 24 |
+| argmax agrees with AR | **2 (0.083)** |
+| model's first six fills | `124901, 278, 278, 278, 278, 278` |
+
+The model collapses the masked block onto one repeated token, so a draft is
+almost never the token the verifier accepts. Two candidate causes, both real:
+training draws `t ~ U[0.35, 0.95]`, so an **all-masked** block is at the edge of
+what the collator ever shows it; and the checkpoint is 2,441 of 7,000 steps in.
+
 **The speed criterion is the one at risk.** On ckpt-4003234, ar_trust TPF is
 **1.07 for both width 4 and width 8** — width changes nothing, which means
 essentially zero drafts are accepted beyond the first token. AR-Trust is
