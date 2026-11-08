@@ -32,8 +32,17 @@ def main(argv=None) -> int:
 
     weights = Path(args.run) / "final-weights.pt"
     if not weights.exists():
-        print(json.dumps({"error": "no trained weights", "path": str(weights)}))
-        return 1
+        # a run cut short still has resumable bundles; export the newest so the
+        # compute already spent produces an artifact
+        bundles = sorted(Path(args.run).glob("ckpt-*"),
+                         key=lambda p: int(p.name.split("-")[-1]))
+        if not bundles:
+            print(json.dumps({"error": "no trained weights", "path": str(weights)}))
+            return 1
+        import torch
+        state = torch.load(bundles[-1] / "checkpoint.pt", map_location="cpu")
+        torch.save(state["model"], weights)
+        print(f"no final-weights.pt; exported {bundles[-1]} instead", flush=True)
 
     result: dict = {}
     rc, tail = step("export", f"cd {ROOT} && python scripts/export_trained.py "
