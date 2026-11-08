@@ -56,7 +56,8 @@ def heldout_loss(model, examples, s_phys, block_size):
     return total / max(n, 1)
 
 
-def run_arm(n_masks: int, budget_s: float, args, train_examples, eval_examples) -> dict:
+def run_arm(n_masks: int, budget_s: float, args, train_examples, eval_examples,
+            quarter: int) -> dict:
     model = Lfm3ForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16)
     cfg = dict(seed=0, s_phys=args.s_phys, block_size=args.block_size,
                lr_max=5e-5, lr_min=2e-6, max_steps=10**6, warmup_steps=0,
@@ -69,10 +70,14 @@ def run_arm(n_masks: int, budget_s: float, args, train_examples, eval_examples) 
         trainer.train_step(train_examples)
         steps += 1
     elapsed = time.perf_counter() - t0
-    corpus = trainer.tokens_seen / 2  # physical -> corpus at the 2:1 packing ratio
+    # physical -> corpus ratio depends on K: a row is P+(1+K)R physical for
+    # P+R corpus, so K=2 is 2:1 and K=4 is 3:1. Dividing by a constant would
+    # flatter the larger K.
+    ratio = (2 * quarter) / (quarter + (1 + n_masks) * quarter)
+    corpus = trainer.tokens_seen * ratio
     return {
         "n_masks": n_masks, "steps": steps, "seconds": round(elapsed, 1),
-        "corpus_tokens": corpus,
+        "mode": args.mode, "corpus_tokens": round(corpus),
         "corpus_tok_s": round(corpus / elapsed),
         "heldout_loss": round(heldout_loss(model, eval_examples,
                                            args.s_phys, args.block_size), 4),
@@ -88,16 +93,21 @@ def main(argv=None) -> int:
                     help="wall clock per arm, so both arms spend the same compute")
     ap.add_argument("--arms", default="2,4")
     ap.add_argument("--flex", action="store_true")
+    ap.add_argument("--mode", default="synthetic_throughput",
+                    choices=["synthetic_throughput", "quality"],
+                    help="synthetic repeats measure throughput only; quality needs a real corpus stream")
     ap.add_argument("--out", default="docs/runs/g4_pilot.md")
     args = ap.parse_args(argv)
 
     g = torch.Generator().manual_seed(0)
-    quarter = args.s_phys // 4
+    arms = [int(k) for k in args.arms.split(",")]
+    # a row holds P+(1+K)R at P=R=quarter, so the widest arm sets the size
+    quarter = args.s_phys // (2 + max(arms))
     train_examples = _examples(g, 2, quarter)
     eval_examples = _examples(torch.Generator().manual_seed(1234), 2, quarter)
 
-    results = [run_arm(int(k), args.budget_seconds, args, train_examples, eval_examples)
-               for k in args.arms.split(",")]
+    results = [run_arm(k, args.budget_seconds, args, train_examples,
+                       eval_examples, quarter) for k in arms]
     best = min(results, key=lambda r: r["heldout_loss"])
     summary = {"budget_seconds": args.budget_seconds, "arms": results,
                "winner": best["n_masks"]}
