@@ -37,6 +37,21 @@ Deliberate deviation from the plan's 150M teacher / 300M corpus: those need
 ~94 h of teacher rollout alone at the measured rate, which the balance cannot
 carry. The run is sized to finish rather than to match the plan's token count.
 
+## Run shape (final)
+
+The pipeline runs as one detached chain on the G4 so a scheduler hiccup does
+not stall it:
+
+```
+build_teacher_cache.py --data-files /content/data/chat.jsonl ... --max-tokens 20M
+  && train_g4.py --cache /content/cache2 ... --max-steps 12200 --resume
+```
+
+Colab resets the VM at 12 h, and Google Drive mount is unavailable on this
+account, so the run is sized to finish inside one session (cache ~20 min at the
+measured 17k tok/s, training ~5 h at 5.1k corpus tok/s). Checkpoints are pruned
+to the two newest so the ~6.5 GB bundles cannot fill the disk.
+
 ## Phase 0 — teacher cache
 
 - Teacher: `LiquidAI/LFM3-1.7B`, FP8 off (measured neutral), rollout mode.
