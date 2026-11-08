@@ -26,8 +26,13 @@ OUTPUT_VOCAB = 125_033
 def build_examples(dataset_file, start, count, tokenizer, s_phys, block_size=32):
     from datasets import load_dataset
 
-    ds = load_dataset("json", data_files=dataset_file,
-                      split=f"train[{start}:{start + count}]")
+    try:
+        # slice form; not every datasets version supports it for data_files
+        ds = load_dataset("json", data_files=dataset_file,
+                          split=f"train[{start}:{start + count}]")
+    except Exception:
+        ds = load_dataset("json", data_files=dataset_file, split="train") \
+            .select(range(start, start + count))
     out = []
     for row in ds:
         prompt = row["input"]
