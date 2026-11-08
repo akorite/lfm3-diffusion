@@ -37,6 +37,22 @@ python scripts/train_g4.py --cache /content/cache --dataset <hf-id> \
   --config configs/g4_300m.yaml --out /content/run
 ```
 
+## Measuring and piloting
+
+```bash
+python scripts/bench_training_step.py --s-phys 4096 --microbatch 1 --flex   # exits 1 below the gate
+python scripts/pilot_ab.py --budget-seconds 600 --flex                      # K=2 vs K=4, matched compute
+```
+
+`bench_training_step.py` is the gate: it prints corpus tok/s and peak VRAM and
+returns non-zero when either misses, so a run script can be gated on it.
+`pilot_ab.py` gives each K the same wall-clock budget and scores both with one
+shared held-out evaluation, writing `docs/runs/g4_pilot.md`.
+
+`n_masks` in the collator (trainer config key) selects the packing: `2` is the
+complementary pair used today, `K>2` packs K independent mask copies over one
+clean context.
+
 ## Gates (abort before spending Phase-1 compute when one fails)
 
 | Gate | Threshold | Measured 2026-11-08 on G4 |
