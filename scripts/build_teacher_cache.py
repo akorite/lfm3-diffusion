@@ -131,6 +131,9 @@ def main(argv=None) -> int:
                 continue
             if args.limit_examples and i - done >= args.limit_examples:
                 break
+            response = example[args.response_field]
+            if not str(response).strip() or str(response).strip() == "N/A":
+                continue  # prompt-only rows (the code split) have no reference to force
             prompt, response = _chat_pair(example, args.prompt_field, args.response_field)
             enc = _encode(tokenizer, prompt, response, args.seq_len)
             if enc is None:
