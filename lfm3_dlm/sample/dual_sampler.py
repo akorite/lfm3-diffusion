@@ -110,7 +110,8 @@ def build_step_mask(
 
 class _Sampler:
     def __init__(self, model, input_ids, block_size, small_block, mode,
-                 isd_width, draft_fn, forced_tokens, eos_ids, step_hook):
+                 isd_width, draft_fn, forced_tokens, eos_ids, step_hook,
+                 hard_commit=_HARD_COMMIT):
         self.model = model
         self.cfg = model.config
         self.block = block_size
@@ -120,6 +121,7 @@ class _Sampler:
         self.forced = list(forced_tokens or [])
         self.eos_ids = set(eos_ids)
         self.step_hook = step_hook
+        self.hard_commit = hard_commit
 
         self.B, self.P = input_ids.shape
         self.device = input_ids.device
@@ -415,7 +417,7 @@ class _Sampler:
                 pred = row.predictors[pos]
                 top1 = int(pred.argmax())
                 conf = float(pred.softmax(-1).max())
-                if top1 == row.prev_top1.get(pos) or conf > _HARD_COMMIT:
+                if top1 == row.prev_top1.get(pos) or conf > self.hard_commit:
                     commits.append((pos, top1))
                 else:
                     break
@@ -550,7 +552,8 @@ class _Sampler:
 
 def generate(model, input_ids, mode="hybrid_auto", max_new_tokens=64,
              block_size=32, small_block=8, isd_width=6, draft_fn=None,
-             forced_tokens=None, eos_token_ids=None, step_hook=None):
+             forced_tokens=None, eos_token_ids=None, step_hook=None,
+             hard_commit=_HARD_COMMIT):
     """Dual-mode generation entry point (CPU-safe, no CUDA dependency).
 
     `mode` is `"spd"`, `"ar_trust"` or `"hybrid_auto"` (SPD that switches to
@@ -570,7 +573,8 @@ def generate(model, input_ids, mode="hybrid_auto", max_new_tokens=64,
     with torch.inference_mode():
         eos = eos_token_ids if eos_token_ids is not None else (IM_END_ID,)
         sampler = _Sampler(model, input_ids, block_size, small_block, mode,
-                           isd_width, draft_fn, forced_tokens, eos, step_hook)
+                           isd_width, draft_fn, forced_tokens, eos, step_hook,
+                           hard_commit=hard_commit)
         sampler._input_ids = input_ids
         try:
             return sampler.run(max_new_tokens)

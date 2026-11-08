@@ -76,7 +76,8 @@ def main(argv=None) -> int:
         ("ar_trust_2", dict(mode="ar_trust", isd_width=2)),
         ("ar_trust_4", dict(mode="ar_trust", isd_width=4)),
         ("ar_trust_8", dict(mode="ar_trust", isd_width=8)),
-        ("spd", dict(mode="spd")),
+        ("spd_0.90", dict(mode="spd", hard_commit=0.90)),
+        ("spd_0.99", dict(mode="spd", hard_commit=0.99)),
         ("hybrid_auto", dict(mode="hybrid_auto")),
     ]
     rows = []
