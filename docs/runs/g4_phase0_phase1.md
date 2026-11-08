@@ -244,6 +244,21 @@ continuation:
 | argmax agrees with AR | **2 (0.083)** |
 | model's first six fills | `124901, 278, 278, 278, 278, 278` |
 
+Repeated on three prompts with the block partially revealed (the way training
+draws it):
+
+| conditioning | prompt 1 align | prompt 2 align | distinct proposals |
+|---|---|---|---|
+| all MASK | 0.125 | 0.062 | 2–5 |
+| 2 tokens revealed | 0.143 | 0.071 | 5 |
+| 4 tokens revealed | **0.417** | 0.083 | 6 |
+
+So the all-mask collapse is partly an out-of-distribution artefact — seeding the
+block raises alignment on one prompt by 3.3x and restores varied proposals — but
+even seeded it stays far from usable, and the second prompt barely moves. The
+decode-side lever (seed the draft block instead of masking it entirely) is real
+but not sufficient on its own.
+
 The model collapses the masked block onto one repeated token, so a draft is
 almost never the token the verifier accepts. Two candidate causes, both real:
 training draws `t ~ U[0.35, 0.95]`, so an **all-masked** block is at the edge of
