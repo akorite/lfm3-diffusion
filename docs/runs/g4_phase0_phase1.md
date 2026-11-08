@@ -563,6 +563,22 @@ show the machinery reaching 2.29 tokens per forward, and the denoiser's
 fill quality - not the decode rule - is what caps it. That is data scale, not a
 code change.
 
+
+## Artifact inventory (`/home/ubuntu/lfm3-artifacts/`)
+
+| file | what |
+|---|---|
+| `export.tar.gz` | 2.6 GB, md5 `34391cc0c44a44f7c6b28ba17b9d0981f` — the HF export (config, modeling code, 3.4 GB `model.safetensors`, tokenizer) |
+| `final-weights.pt` | the trainer's state dict the export was built from, md5 `4bd67858121a00eef148d180371821f0` |
+| `parity.md`, `spd_sweep.json` | parity and SPD numbers in the sweep's own format |
+| `heldout_trained.json`, `heldout_base.json` | 4.779 vs 15.717 |
+| `ppl_trained.json`, `ppl_base.json` | 4.396 vs 4.419 |
+| `FINAL.json`, `export_check.json` | endgame log and the export assertions |
+
+Both large files were pulled in 200 MB parts: `colab download` buffers a whole
+file in memory, and this host has 7 GB, so a single 2.6 GB or 5.4 GB transfer
+fights the OOM killer. `REASSEMBLE.md` records the checksums.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
