@@ -16,11 +16,12 @@ OUT = Path("/content")
 STATE = OUT / "PIPELINE.json"
 LOG = OUT / "PIPELINE.log"
 
-CACHE_TOKENS = 40_000_000
-TRAIN_STEPS = 18_300         # 8192 corpus tokens/step -> ~150M corpus tokens
+CACHE_TOKENS = 20_000_000
+TRAIN_STEPS = 12_200         # 8192 corpus tokens/step -> ~100M corpus tokens
 DATASET = "nvidia/Llama-Nemotron-Post-Training-Dataset"
 CONFIG = "SFT"
 SPLIT = "chat"
+DATA_FILES = "/content/data/chat.jsonl"   # downloaded once; streaming the Hub stalls
 PROMPT_FIELD = "input"
 RESPONSE_FIELD = "output"
 
@@ -54,16 +55,21 @@ def run(cmd, name, timeout=None):
 def main():
     log("pipeline start")
     # 1) teacher cache
-    rc = run(
-        f"cd {ROOT} && python scripts/build_teacher_cache.py "
-        f"--dataset {DATASET} --dataset-config {CONFIG} --split {SPLIT} "
-        f"--prompt-field {PROMPT_FIELD} --response-field {RESPONSE_FIELD} "
-        f"--seq-len 4096 --batch-size 16 --head-chunk 256 "
-        f"--out /content/cache --max-tokens {CACHE_TOKENS}",
-        "phase0")
     meta = OUT / "cache" / "meta.json"
-    if meta.exists():
-        record("cache_meta", json.loads(meta.read_text()))
+    cached = json.loads(meta.read_text())["tokens"] if meta.exists() else 0
+    if cached >= CACHE_TOKENS:
+        log(f"phase0 already complete ({cached} tokens)")
+        record("phase0", {"rc": 0, "seconds": 0, "tail": "skipped: cache complete"})
+    else:
+        rc = run(
+            f"cd {ROOT} && python scripts/build_teacher_cache.py "
+            f"--data-files {DATA_FILES} "
+            f"--prompt-field {PROMPT_FIELD} --response-field {RESPONSE_FIELD} "
+            f"--seq-len 4096 --batch-size 16 --head-chunk 256 "
+            f"--out /content/cache --max-tokens {CACHE_TOKENS}",
+            "phase0")
+        if meta.exists():
+            record("cache_meta", json.loads(meta.read_text()))
     if rc != 0:
         log("phase0 failed; continuing to training with whatever cache exists")
 
@@ -88,9 +94,10 @@ def main():
     # 3) training
     run(
         f"cd {ROOT} && python scripts/train_g4.py --cache /content/cache "
-        f"--dataset {DATASET} --dataset-config {CONFIG} --split {SPLIT} "
+        f"--data-files {DATA_FILES} "
         f"--prompt-field {PROMPT_FIELD} --response-field {RESPONSE_FIELD} "
-        f"--config configs/g4_run.yaml --out /content/run --max-steps {TRAIN_STEPS}",
+        f"--config configs/g4_run.yaml --out /content/run "
+        f"--max-steps {TRAIN_STEPS} --resume",
         "phase1")
 
     # 4) export + eval

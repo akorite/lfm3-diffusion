@@ -56,13 +56,17 @@ class TeacherCache:
 
 
 def corpus_examples(dataset_id, split, prompt_field, response_field, tokenizer,
-                    seq_len, take, config_name=None):
+                    seq_len, take, config_name=None, data_files=None):
     """Teacherless examples: the collator supervises them with plain CE."""
     from datasets import load_dataset
 
     out = []
-    ds = (load_dataset(dataset_id, config_name, split=split, streaming=True)
-          if config_name else load_dataset(dataset_id, split=split, streaming=True))
+    if data_files:
+        ds = load_dataset("json", data_files=data_files, split="train", streaming=True)
+    elif config_name:
+        ds = load_dataset(dataset_id, config_name, split=split, streaming=True)
+    else:
+        ds = load_dataset(dataset_id, split=split, streaming=True)
     for example in ds:
         prompt = example[prompt_field]
         prompt_msgs = prompt if isinstance(prompt, list) else [
@@ -90,12 +94,15 @@ def main(argv=None) -> int:
     ap.add_argument("--dataset", default=None, help="raw corpus for teacherless rows")
     ap.add_argument("--split", default="train")
     ap.add_argument("--dataset-config", default=None)
+    ap.add_argument("--data-files", default=None)
     ap.add_argument("--prompt-field", default="prompt")
     ap.add_argument("--response-field", default="response")
     ap.add_argument("--model", default="LiquidAI/LFM3-1.7B")
     ap.add_argument("--out", required=True)
     ap.add_argument("--examples-per-step", type=int, default=4)
     ap.add_argument("--max-steps", type=int, default=0)
+    ap.add_argument("--resume", action="store_true",
+                    help="continue from the newest checkpoint under --out")
     args = ap.parse_args(argv)
 
     from lfm3_dlm import Lfm3ForCausalLM
@@ -112,8 +119,18 @@ def main(argv=None) -> int:
     cache = TeacherCache(args.cache)
     corpus = (corpus_examples(args.dataset, args.split, args.prompt_field,
                               args.response_field, tokenizer,
-                              cfg.get("s_phys", 4096), 64, args.dataset_config)
+                              cfg.get("s_phys", 4096), 64, args.dataset_config,
+                              args.data_files)
               if args.dataset else [])
+
+    if args.resume:
+        ckpts = sorted(out.glob("ckpt-*")) + ([out / "final-ckpt"] if (out / "final-ckpt").exists() else [])
+        ckpts = [c for c in ckpts if (c / "checkpoint.pt").exists()]
+        if ckpts:
+            trainer.load_checkpoint(ckpts[-1])
+            print(f"resumed from {ckpts[-1]} at step {trainer.step}", flush=True)
+        else:
+            print("nothing to resume; starting fresh", flush=True)
 
     rng = torch.Generator().manual_seed(cfg.get("seed", 0))
     cursor = 0

@@ -98,6 +98,8 @@ def main(argv=None) -> int:
     ap.add_argument("--model", default="LiquidAI/LFM3-1.7B")
     ap.add_argument("--dataset", required=True, help="HF dataset id")
     ap.add_argument("--split", default="train")
+    ap.add_argument("--data-files", default=None,
+                    help="local jsonl/parquet instead of streaming from the Hub")
     ap.add_argument("--dataset-config", default=None,
                     help="dataset config name when the repo has several (e.g. SFT)")
     ap.add_argument("--prompt-field", default="prompt")
@@ -136,9 +138,14 @@ def main(argv=None) -> int:
 
         convert_to_float8_training(model)
 
-    ds = load_dataset(args.dataset, args.dataset_config, split=args.split,
-                      streaming=True) if args.dataset_config else \
-        load_dataset(args.dataset, split=args.split, streaming=True)
+    if args.data_files:
+        ds = load_dataset("json", data_files=args.data_files, split="train",
+                          streaming=True)
+    elif args.dataset_config:
+        ds = load_dataset(args.dataset, args.dataset_config, split=args.split,
+                          streaming=True)
+    else:
+        ds = load_dataset(args.dataset, split=args.split, streaming=True)
     shard_buf: list[torch.Tensor] = []
     shard_rows = 0
     shard_idx = len(list(out.glob("shard-*.bin")))
