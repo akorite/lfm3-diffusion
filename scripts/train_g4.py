@@ -67,8 +67,13 @@ def corpus_examples(dataset_id, split, prompt_field, response_field, tokenizer,
         prompt = example[prompt_field]
         prompt_msgs = prompt if isinstance(prompt, list) else [
             {"role": "user", "content": prompt}]
-        p = tokenizer.apply_chat_template(prompt_msgs, add_generation_prompt=True,
-                                          tokenize=True)
+        if tokenizer.chat_template:
+            p = tokenizer.apply_chat_template(prompt_msgs, add_generation_prompt=True,
+                                              tokenize=True)
+        else:
+            # vendored tokenizer assets carry no template: plain text
+            text = "\n".join(m.get("content", "") for m in prompt_msgs)
+            p = tokenizer.encode(text + "\n", add_special_tokens=True)
         r = tokenizer.encode(str(example[response_field]), add_special_tokens=False)
         r = r + [tokenizer.eos_token_id or 124_900]
         if len(p) + len(r) <= seq_len:
