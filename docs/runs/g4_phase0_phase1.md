@@ -505,6 +505,39 @@ AR-Trust stays fluent. A diffusion LM's speed comes from committing many tokens
 per forward; this model can commit them but cannot choose them, which is a
 training-scale statement, not a decode-knob one.
 
+
+## Wall-clock speed, same prompt, 64 tokens, A100
+
+`speed_wallclock.py` on the delivered weights. This is the number a user feels.
+
+| mode | seconds | tokens/s | vs plain AR | tokens/forward |
+|---|---|---|---|---|
+| plain AR greedy | 1.99 | 32.2 | 1.00x | 1.00 |
+| **ar_trust, width 4** | **1.03** | **61.9** | **1.93x** | 1.21 |
+| spd, block 8 / small 4 | 0.68 | 94.0 | 2.92x | 1.73 |
+| spd, block 32 / small 32 | 0.33 | **195.3** | **6.06x** | 9.14 |
+
+So the conversion does beat its own autoregressive decoding by ~2x at exact
+parity, and the diffusion path reaches 6x. The 6x operating point is not usable
+yet: the text collapses into repetition at every SPD setting tested, including
+the mildest (see the quality table above). The speed is real; the tokens are not.
+
+## What would move this
+
+Two polish legs tested the train/decode mismatch directly, both seeded from the
+delivered checkpoint, both measured on the same harness:
+
+| change | ar_trust TPF | SPD text |
+|---|---|---|
+| `t_high: 1.0` (all-masked rows in training) | 1.38 (unchanged) | collapses |
+| `t_high: 1.0` + `mask_token_frac: 1.0` (noisy slots are the mask embedding, as at decode) | 1.38 (unchanged) | collapses |
+
+Neither moved the decoder. Combined with the earlier evidence - oracle drafts
+reach 2.29, every decode knob is flat, and SPD throughput is available but
+quality-limited - the remaining gap is training scale on the diffusion
+objective, not a setting. LLaDA-class models train on hundreds of billions of
+tokens; this one has 25M.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
