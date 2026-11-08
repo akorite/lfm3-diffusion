@@ -24,7 +24,7 @@ total_tokens: 150_000_000
 max_steps: 18300        # 8192 corpus tokens per step -> ~150M corpus tokens
 warmup_steps: 600
 
-phase1_boundary_tokens: 30_000_000
+phase1_boundary_tokens: 60_000_000   # physical tokens (~2x corpus at P=R)
 oput_ratio: 0.5
 
 checkpoint_interval_tokens: 25_000_000

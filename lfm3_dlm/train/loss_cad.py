@@ -212,7 +212,13 @@ def compute_step_loss(
 
 
 @torch.no_grad()
-def oput_corrupt(hidden: torch.Tensor, classifier: torch.Tensor) -> torch.Tensor:
-    """Detached student top-1 over the sliced classifier: the on-manifold
-    corruption source for the phase-2 OPUT steps."""
-    return (hidden.float() @ classifier.float().t()).argmax(-1)
+def oput_corrupt(hidden: torch.Tensor, classifier: torch.Tensor,
+                 chunk: int = LSE_CHUNK) -> torch.Tensor:
+    """Detached student top-1 over the sliced classifier, in row chunks: the
+    on-manifold corruption source for the phase-2 OPUT steps."""
+    out = []
+    h = hidden.float()
+    w = classifier.float().t()
+    for start in range(0, h.shape[0], chunk):
+        out.append((h[start:start + chunk] @ w).argmax(-1))
+    return torch.cat(out) if out else hidden.new_zeros(0, dtype=torch.long)

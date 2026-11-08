@@ -16,7 +16,7 @@ import torch
 import yaml
 
 from .collator import SharedPrefixCollator
-from .loss_cad import compute_step_loss, oput_corrupt
+from .loss_cad import LSE_CHUNK, compute_step_loss, oput_corrupt
 from .fp8_mlp import freeze_mlp_weights
 from ..masks import BLOCK_WARMUP_SCHEDULE
 
@@ -174,7 +174,7 @@ class DLMTrainer:
     def _oput_corrupt(self, examples: list[dict]) -> list[dict]:
         """Attach the student's own top-1 per response position as the
         corruption source (`oput_ids`) for the packed collator."""
-        classifier = self.model.get_output_classifier().float()
+        classifier = self.model.get_output_classifier()
         out_examples = []
         for ex in examples:
             prompt = torch.as_tensor(ex["prompt_ids"], dtype=torch.long, device=self.device)
@@ -184,12 +184,12 @@ class DLMTrainer:
             # position P-1+j predicts response token j
             pred = hidden[len(prompt) - 1 : len(prompt) - 1 + len(resp)]
             ex = dict(ex)
-            ex["oput_ids"] = oput_corrupt(pred, classifier)
+            ex["oput_ids"] = oput_corrupt(pred, classifier, chunk=LSE_CHUNK)
             out_examples.append(ex)
         return out_examples
 
     # ---------------------------------------------------------------
-    def save_checkpoint(self, path: str | Path) -> None:
+    def save_checkpoint(self, path: str | Path, prune: int = 0) -> None:
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
         torch.save(

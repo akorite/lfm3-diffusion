@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -43,10 +44,13 @@ def record(key, value):
 def run(cmd, name, timeout=None):
     log(f"start {name}: {cmd}")
     t0 = time.time()
-    r = subprocess.run(["bash", "-lc", cmd], capture_output=True, text=True,
-                       timeout=timeout)
+    with tempfile.TemporaryFile(mode="w+") as buf:
+        r = subprocess.run(["bash", "-lc", cmd], stdout=buf, stderr=buf,
+                           text=True, timeout=timeout)
+        buf.seek(0)
+        captured = buf.read()
     dt = round(time.time() - t0, 1)
-    tail = (r.stdout + r.stderr)[-800:]
+    tail = captured[-800:]
     log(f"end {name} rc={r.returncode} in {dt}s :: {tail}")
     record(name, {"rc": r.returncode, "seconds": dt, "tail": tail})
     return r.returncode
@@ -56,6 +60,7 @@ def main():
     log("pipeline start")
     # 1) teacher cache
     meta = OUT / "cache" / "meta.json"
+    rc = 0
     cached = json.loads(meta.read_text())["tokens"] if meta.exists() else 0
     if cached >= CACHE_TOKENS:
         log(f"phase0 already complete ({cached} tokens)")
@@ -71,7 +76,10 @@ def main():
         if meta.exists():
             record("cache_meta", json.loads(meta.read_text()))
     if rc != 0:
-        log("phase0 failed; continuing to training with whatever cache exists")
+        log("phase0 failed; training would replay a partial cache — aborting")
+        record("aborted", "phase0 failed")
+        (OUT / "PIPELINE.done").write_text(json.dumps({"error": "phase0 failed"}))
+        return
 
     # 2) parity gate on the teacher cache (cheap, decision-relevant)
     run(f"cd {ROOT} && python - <<'PY'\n"
@@ -91,6 +99,12 @@ def main():
         "print('PARITY_TPF', round(best, 3))\n"
         "PY", "parity")
 
+    if rc != 0:
+        log("parity stage failed")
+        record("aborted", "parity failed")
+        (OUT / "PIPELINE.done").write_text(json.dumps({"error": "parity failed"}))
+        return
+
     # 3) training
     run(
         f"cd {ROOT} && python scripts/train_g4.py --cache /content/cache "
@@ -99,10 +113,17 @@ def main():
         f"--config configs/g4_run.yaml --out /content/run "
         f"--max-steps {TRAIN_STEPS} --resume",
         "phase1")
+    if rc != 0:
+        log("phase1 failed")
+        (OUT / "PIPELINE.done").write_text(json.dumps({"error": "phase1 failed"}))
+        return
 
     # 4) export + eval
-    run(f"cd {ROOT} && python scripts/export_trained.py --run /content/run "
+    rc = run(f"cd {ROOT} && python scripts/export_trained.py --run /content/run "
         f"--dst /content/export", "export")
+    if rc != 0:
+        (OUT / "PIPELINE.done").write_text(json.dumps({"error": "export failed"}))
+        return
     run(f"cd {ROOT} && python scripts/eval_trained.py --weights /content/run/final-weights.pt "
         f"--cache /content/cache --out /content/eval.json", "eval")
 

@@ -36,6 +36,13 @@ def _chat_pair(example, prompt_field, response_field):
     return [{"role": "user", "content": prompt}], str(response)
 
 
+def _fits(prompt_ids, response_ids, s_phys, block_size, n_masks):
+    """The collator packs P + (1+K)R into one row and raises when it does not
+    fit, so the cache must never hand it a row that cannot pack."""
+    r = max(block_size, -(-len(response_ids) // block_size) * block_size)
+    return len(prompt_ids) + (1 + n_masks) * r <= s_phys
+
+
 def _encode(tokenizer, prompt, response, seq_len):
     """Prompt ids, plus reference-response ids when one exists."""
     if tokenizer.chat_template:
@@ -109,6 +116,10 @@ def main(argv=None) -> int:
     ap.add_argument("--shard-tokens", type=int, default=4_000_000)
     ap.add_argument("--seq-len", type=int, default=2048)
     ap.add_argument("--head-chunk", type=int, default=256)
+    ap.add_argument("--s-phys", type=int, default=4096,
+                    help="packed row size the trainer will use")
+    ap.add_argument("--block-size", type=int, default=32)
+    ap.add_argument("--n-masks", type=int, default=2)
     ap.add_argument("--batch-size", type=int, default=16,
                     help="examples per teacher forward (left-padded, masked)")
     ap.add_argument("--fp8", action="store_true", help="torchao PerRow-FP8 teacher")

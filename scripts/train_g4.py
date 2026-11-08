@@ -42,8 +42,10 @@ class TeacherCache:
             self._shards[idx] = raw.reshape(-1, 68)
         return self._shards[idx]
 
-    def example(self, i: int) -> dict:
+    def example(self, i: int) -> dict | None:
         e = self.entries[i]
+        if e.get("skip"):
+            return None
         rows = self._shard(e["shard"])[e["offset"]: e["offset"] + e["R"]]
         ids, lps, res = unpack_top16(torch.from_numpy(rows.copy()))
         return {
@@ -115,6 +117,9 @@ def main(argv=None) -> int:
     tokenizer = load_tokenizer()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = Lfm3ForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16)
+    if args.max_steps:
+        # the LR schedule must anneal to lr_min at the step we actually stop
+        cfg["max_steps"] = args.max_steps
     trainer = DLMTrainer(model, cfg, device=device)
     cache = TeacherCache(args.cache)
     corpus = (corpus_examples(args.dataset, args.split, args.prompt_field,
@@ -124,7 +129,11 @@ def main(argv=None) -> int:
               if args.dataset else [])
 
     if args.resume:
-        ckpts = sorted(out.glob("ckpt-*")) + ([out / "final-ckpt"] if (out / "final-ckpt").exists() else [])
+        def _ckpt_key(path):
+            tail = path.name.split("-")[-1]
+            return (0, int(tail)) if tail.isdigit() else (-1, 0)
+        ckpts = sorted(out.glob("ckpt-*"), key=_ckpt_key) + (
+            [out / "final-ckpt"] if (out / "final-ckpt").exists() else [])
         ckpts = [c for c in ckpts if (c / "checkpoint.pt").exists()]
         if ckpts:
             trainer.load_checkpoint(ckpts[-1])
@@ -151,8 +160,13 @@ def main(argv=None) -> int:
                 batch.append(corpus[int(torch.randint(0, len(corpus), (1,), generator=rng))])
             else:
                 # wrap per draw: a short cache must still fill the batch
-                batch.append(cache.example(cursor % len(cache)))
+                ex = cache.example(cursor % len(cache))
                 cursor += 1
+                if ex is None:
+                    continue
+                batch.append(ex)
+        if not batch:
+            break
         loss = trainer.train_step(batch)
         lr = cosine_lr(trainer.step, cfg["max_steps"], cfg.get("warmup_steps", 0),
                        cfg["lr_max"], cfg["lr_min"])
@@ -169,6 +183,13 @@ def main(argv=None) -> int:
             print(json.dumps(row), flush=True)
         if trainer.tokens_seen - last_ckpt >= cfg.get("checkpoint_interval_tokens", 75_000_000):
             trainer.save_checkpoint(out / f"ckpt-{trainer.tokens_seen}")
+            # each bundle is ~6.5 GB: keep the two newest or the disk fills
+            bundles = sorted(out.glob("ckpt-*"),
+                             key=lambda p: int(p.name.split("-")[-1]))
+            for old in bundles[:-2]:
+                for f in old.glob("*"):
+                    f.unlink()
+                old.rmdir()
             last_ckpt = trainer.tokens_seen
 
     trainer.save_checkpoint(out / "final-ckpt")
