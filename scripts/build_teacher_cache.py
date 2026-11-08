@@ -103,7 +103,7 @@ def teacher_rows(model, prompt_ids, response_ids, head_chunk):
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", default="LiquidAI/LFM3-1.7B")
-    ap.add_argument("--dataset", required=True, help="HF dataset id")
+    ap.add_argument("--dataset", default="", help="HF dataset id (or use --data-files)")
     ap.add_argument("--split", default="train")
     ap.add_argument("--data-files", default=None,
                     help="local jsonl/parquet instead of streaming from the Hub")
