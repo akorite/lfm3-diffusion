@@ -639,6 +639,38 @@ the denoiser is weak, not merely unconditioned. That matches Fast-dLLM's
 dependency-disruption account and the DiffuLLaMA scale gap, and it is why the
 parallel path stays unusable here.
 
+
+## Draft head: built, wired, and so far not better than the mask-draft
+
+`lfm3_dlm/sample/draft_head.py` is a Medusa/EAGLE-style head: it reads the
+model's hidden state at the last committed position and proposes the next `k`
+tokens, reusing the frozen output head so the trainable part is a residual MLP
+plus one block over `k` slots. `generate(..., draft_head=...)` and
+`parity_sweep.py --draft-head` wire it into AR-Trust; the verifier is untouched,
+so parity cannot move.
+
+| configuration | parity | TPF |
+|---|---|---|
+| base model, mask-draft (shipped behaviour) | 1.000 | **1.07** |
+| base model, draft head, 600 steps, corpus targets | 1.000 | 0.93 |
+
+So the first head proposes *worse* tokens than the denoiser's mask-draft. Two
+reasons were worth separating, and the second one matters:
+
+1. 600 steps is a few minutes of training - Medusa heads are trained far longer.
+2. The targets were corpus tokens, but the verifier accepts the model's *own*
+   argmax. Where the model disagrees with the corpus, that loss teaches the head
+   to predict something verification will never accept.
+
+The second point is fixed in `scripts/train_draft.py` (targets are now the
+model's own next-token argmax at each position); a 4,000-step run with that
+target was launched to see whether the head clears the mask-draft at all.
+
+Note on the transfer path: the Colab contents API rejects uploads above roughly
+50 MB (HTTP 400) and moves at ~1 MB/s, so retraining this head on the 25M
+checkpoint needs the weights split into ~50 chunks. The base-model run above
+needs no transfer, which is why it went first.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:

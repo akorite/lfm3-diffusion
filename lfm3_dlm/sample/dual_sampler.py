@@ -509,7 +509,9 @@ class _Sampler:
                 with torch.no_grad():
                     lg = self.draft_head(self._head_input(r, C),
                                          self.model.lm_head)
-                cand[r] = [int(lg[j, :OUTPUT_VOCAB].argmax()) for j in range(k)]
+                n_head = lg.shape[0]
+                cand[r] = [int(lg[j, :OUTPUT_VOCAB].argmax())
+                           for j in range(min(k, n_head))]
             else:
                 # mask-draft proposals: predictor[p] is conditioned on the
                 # real prefix + MASKs, i.e. exactly the draft distribution

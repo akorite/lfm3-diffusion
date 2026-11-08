@@ -40,9 +40,10 @@ class DraftHead(nn.Module):
         squeeze = hidden.dim() == 1
         if squeeze:
             hidden = hidden.unsqueeze(0)
-        h = hidden.to(next(self.parameters()).dtype) + self.pre(hidden)
+        x = hidden.to(self.slot.dtype)
+        h = x + self.pre(x)
         seq = h.unsqueeze(1) + self.slot.unsqueeze(0)          # [B, k, H]
         seq = self.block(seq)
         seq = self.norm(seq)
-        logits = lm_head(seq)                                   # shared frozen head
+        logits = lm_head(seq.to(lm_head.weight.dtype))          # shared frozen head
         return logits[0] if squeeze else logits

@@ -82,7 +82,7 @@ def main(argv=None) -> int:
     if args.draft_head:
         from lfm3_dlm.sample.draft_head import DraftHead
         ck = torch.load(args.draft_head, map_location="cpu")
-        head = DraftHead(model.config.hidden_size, k=ck["k"]).cuda()
+        head = DraftHead(model.config.hidden_size, k=ck["k"]).cuda().to(torch.bfloat16)
         head.load_state_dict(ck["head"])
         head.eval()
         print(f"draft head k={ck['k']}", flush=True)

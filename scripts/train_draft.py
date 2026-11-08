@@ -81,7 +81,7 @@ def main(argv=None) -> int:
     lm_head = model.lm_head
     H = model.config.hidden_size
 
-    head = DraftHead(H, k=args.k).cuda()
+    head = DraftHead(H, k=args.k).cuda().to(torch.bfloat16)
     opt = torch.optim.AdamW(head.parameters(), lr=args.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.steps, eta_min=args.lr / 20)
 
@@ -103,7 +103,12 @@ def main(argv=None) -> int:
             pos = torch.randint(0, len(x) - args.k - 1, (args.positions,))
             h = hidden[b, pos]
             logits = head(h, lm_head)                      # [n, k, V]
-            tgt = torch.stack([batch[b, pos + j + 1] for j in range(args.k)], 1)
+            # the verifier accepts the model's own argmax, so that is the target
+            # - corpus tokens differ exactly where the model would be wrong
+            with torch.no_grad():
+                tgt = torch.stack([
+                    lm_head(hidden[b, pos + j])[:, :OUTPUT_VOCAB].argmax(-1)
+                    for j in range(args.k)], 1)
             loss_terms.append(F.cross_entropy(
                 logits[:, :, :OUTPUT_VOCAB].transpose(1, 2), tgt))
         loss = torch.stack(loss_terms).mean()
