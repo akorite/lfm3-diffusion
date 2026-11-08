@@ -177,6 +177,12 @@ When training finishes the chain produces, in order:
 3. `/content/eval.json` — three generations with their TPF, the number of
    weight keys that loaded, and a held-out loss computed over cache rows
 
+**Export pre-flight (verified on the 25M-token checkpoint):** the merge
+produces a 24-layer HF directory that loads with `Lfm3ForCausalLM`, and the
+trained mask row is *not* re-seeded from the pad row
+(`mask_norm 0.434` vs `pad_norm 0.436`, `allclose == False`) — the bug a
+pre-flight review caught before the run would have shipped it.
+
 **Honest limit on that loss:** the Nemotron chat split ships as a single file,
 so the "held-out" rows come from the same distribution the model trained on —
 it measures fit, not generalisation. The generation samples and the AR-parity
