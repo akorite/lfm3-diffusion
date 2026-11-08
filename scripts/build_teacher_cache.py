@@ -103,6 +103,8 @@ def main(argv=None) -> int:
     ap.add_argument("--shard-tokens", type=int, default=4_000_000)
     ap.add_argument("--seq-len", type=int, default=2048)
     ap.add_argument("--head-chunk", type=int, default=256)
+    ap.add_argument("--batch-size", type=int, default=16,
+                    help="examples per teacher forward (left-padded, masked)")
     ap.add_argument("--fp8", action="store_true", help="torchao PerRow-FP8 teacher")
     ap.add_argument("--limit-examples", type=int, default=0)
     ap.add_argument("--generate", action="store_true",
@@ -137,14 +139,50 @@ def main(argv=None) -> int:
     tokens = done
     t0 = time.perf_counter()
 
-    def flush():
-        nonlocal shard_buf, shard_rows, shard_idx
-        if not shard_rows:
+    pending: list[tuple[list[int], list[int]]] = []
+
+    def flush_batch():
+        """One teacher forward for the whole pending batch, then the cached
+        top-k per example. Prompts are left-padded so every response starts
+        at the same column, and the padding is masked out."""
+        nonlocal shard_buf, shard_rows, shard_idx, tokens
+        if not pending:
             return
-        path = out / f"shard-{shard_idx:05d}.bin"
-        path.write_bytes(torch.cat(shard_buf).numpy().tobytes())
-        shard_buf, shard_rows = [], 0
-        shard_idx += 1
+        max_p = max(len(p) for p, _ in pending)
+        max_r = max(len(r) for _, r in pending)
+        n, L = len(pending), max_p + max_r
+        pad = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+        ids = torch.full((n, L), pad, dtype=torch.long, device=device)
+        attn = torch.zeros((n, L), dtype=torch.long, device=device)
+        pos = torch.zeros((n, L), dtype=torch.long, device=device)
+        for i, (p, r) in enumerate(pending):
+            ids[i, max_p - len(p):max_p] = torch.tensor(p, device=device)
+            ids[i, max_p:max_p + len(r)] = torch.tensor(r, device=device)
+            attn[i, max_p - len(p):max_p + len(r)] = 1
+            pos[i, max_p - len(p):max_p] = torch.arange(len(p), device=device)
+            pos[i, max_p:max_p + len(r)] = torch.arange(
+                len(p), len(p) + len(r), device=device)
+        with torch.no_grad():
+            hidden = model.model(input_ids=ids, attention_mask=attn,
+                                 position_ids=pos).last_hidden_state
+        for i, (p, r) in enumerate(pending):
+            rows = hidden[i, max_p - 1:max_p - 1 + len(r)]
+            tids, lps, res = _topk_chunk(rows, model.get_output_classifier(),
+                                         args.head_chunk)
+            index.write(json.dumps({
+                "shard": shard_idx, "offset": shard_rows,
+                "P": len(p), "R": len(r),
+                "prompt_ids": p, "response_ids": r,
+            }) + "\n")
+            shard_buf.append(pack_top16(tids, lps, res).cpu())
+            shard_rows += len(r)
+            tokens += len(r)
+            if shard_rows >= args.shard_tokens:
+                path = out / f"shard-{shard_idx:05d}.bin"
+                path.write_bytes(torch.cat(shard_buf).numpy().tobytes())
+                shard_buf, shard_rows = [], 0
+                shard_idx += 1
+        pending.clear()
 
     with index_path.open("a") as index:
         for i, example in enumerate(ds):
@@ -169,31 +207,19 @@ def main(argv=None) -> int:
                 if not str(reference).strip() or str(reference).strip() == "N/A":
                     continue  # prompt-only row and no rollout requested
                 response_ids = enc[1]
-            ids, lps, res = teacher_rows(model, prompt_ids, response_ids, args.head_chunk)
-            buf = pack_top16(ids, lps, res).cpu()
-            index.write(json.dumps({
-                "shard": shard_idx,
-                "offset": shard_rows,
-                "P": len(prompt_ids),
-                "R": len(response_ids),
-                "prompt_ids": prompt_ids,
-                "response_ids": response_ids,
-            }) + "\n")
-            shard_buf.append(buf)
-            shard_rows += len(response_ids)
-            tokens += len(response_ids)
-            if shard_rows >= args.shard_tokens:
-                flush()
+            pending.append((prompt_ids, response_ids))
+            if len(pending) >= args.batch_size:
+                flush_batch()
             if tokens >= args.max_tokens:
                 break
-            if tokens and tokens % 1_000_000 < len(response_ids):
+            if tokens and tokens % 1_000_000 < args.batch_size * 64:
                 rate = tokens / max(time.perf_counter() - t0, 1e-9)
-                print(f"{tokens/1e6:.0f}M tokens, {rate:.0f} tok/s", flush=True)
+                print(f"{tokens/1e6:.1f}M tokens, {rate:.0f} tok/s", flush=True)
                 (out / "meta.json").write_text(json.dumps({
                     "tokens": tokens, "examples": i + 1, "rate_tok_s": rate,
                     "bytes_per_token": BYTES_PER_TOKEN,
                 }, indent=1))
-    flush()
+    flush_batch()
     (out / "meta.json").write_text(json.dumps({
         "tokens": tokens,
         "shards": shard_idx,
