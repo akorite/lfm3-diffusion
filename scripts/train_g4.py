@@ -147,6 +147,9 @@ def main(argv=None) -> int:
             last_ckpt = trainer.tokens_seen
 
     trainer.save_checkpoint(out / "final-ckpt")
+    # plain weights for the exporter: `merge_mixer_state` reads a state dict,
+    # not the resumable checkpoint bundle
+    torch.save(trainer.model.state_dict(), out / "final-weights.pt")
     print(f"done: {trainer.tokens_seen} tokens, {trainer.step} steps -> {out}")
     return 0
 
