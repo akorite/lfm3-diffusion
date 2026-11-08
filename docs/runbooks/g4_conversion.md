@@ -45,6 +45,12 @@ python scripts/train_g4.py --cache /content/cache --dataset <hf-id> \
 | Peak VRAM | `< 65 GB` without activation checkpointing | **29.1 GB** at mb=1 — passes; 90 GB at mb=4 |
 | Finite loss over the smoke | no NaN/Inf | passes |
 
+Layer checkpointing: the trainer flag (`activation_checkpointing`) uses the
+model's `checkpoint_layers` kwarg and is tested; the native
+`gradient_checkpointing_enable` path also works and costs ~30% step time for
+~4 GB, so it is preferred when memory is the binding constraint. Neither is on
+by default — VRAM already clears the gate at `microbatch: 1-2`.
+
 FlexAttention is wired and buys ~10%, not the 4x the mask cost suggested; the
 step sits at ~19% of BF16 peak, so the remaining gap is utilisation, not mask
 materialisation. Full numbers and the checkpointing incompatibility are in
