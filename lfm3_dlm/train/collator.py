@@ -68,7 +68,11 @@ class SharedPrefixCollator:
         mask_token_id: int = MASK_TOKEN_ID,
         im_end_id: int = IM_END_ID,
         rng: torch.Generator | None = None,
+        n_masks: int = 2,
     ):
+        if n_masks < 2:
+            raise ValueError("n_masks must be >= 2 (the complementary pair)")
+        self.n_masks = n_masks
         self.s_phys = s_phys
         self.block_size = block_size
         self.mask_token_id = mask_token_id
@@ -113,7 +117,7 @@ class SharedPrefixCollator:
             ex = examples[i]
             P = len(ex["prompt_ids"])
             R = _round_up(len(ex["response_ids"]), B)
-            need = P + 3 * R
+            need = P + (1 + self.n_masks) * R
             if pos + need > S and pos > 0:
                 break
             if need > S:
@@ -194,9 +198,10 @@ class SharedPrefixCollator:
         rng_out = {"t": t, "m": m}
 
         seg0 = slice(pos, pos + L)                    # P + R_clean
-        seg1 = slice(pos + L, pos + L + R)            # R_m1
-        seg2 = slice(pos + L + R, pos + L + 2 * R)    # R_m2
-        doc_id[seg0] = doc_id[seg1] = doc_id[seg2] = doc_idx
+        segs = [slice(pos + L + k * R, pos + L + (k + 1) * R)
+                for k in range(self.n_masks)]
+        for seg in [seg0, *segs]:
+            doc_id[seg] = doc_idx
         stream_id[seg0] = 0
 
         # stream 0: [P | R_clean]
@@ -207,8 +212,12 @@ class SharedPrefixCollator:
             labels[pos + l] = clean_tokens[l + 1]
             ar_weight[pos + l] = 1.0
 
-        # noisy streams
-        for stream, seg, sel in ((1, seg1, m), (2, seg2, ~m)):
+        # noisy streams: the complementary pair for K=2, otherwise K
+        # independent draws (MMT), each its own stream and therefore isolated
+        selections = ((m, ~m) if self.n_masks == 2 else
+                      tuple(torch.rand(e + 1, generator=g, device=dev) < t
+                            for _ in range(self.n_masks)))
+        for stream, (seg, sel) in enumerate(zip(segs, selections), start=1):
             noisy = torch.empty(R, dtype=torch.long, device=dev)
             noisy[: len(resp)] = resp
             noisy[len(resp) :] = self.mask_token_id

@@ -202,3 +202,43 @@ def test_train_step_updates_only_trainable_params():
         (changed if not torch.equal(before[n], p.detach()) else frozen).add(n)
     assert any("feed_forward" not in n for n in changed)
     assert all("feed_forward" in n for n in frozen)
+
+
+def test_four_mask_copies_are_isolated_and_see_the_clean_prefix():
+    """MMT layout: K mask copies over one clean context, each isolated from its
+    siblings. K=2 stays the complementary pair, so this covers K=4 only."""
+    from lfm3_dlm.masks import build_dlm_bool_mask
+
+    rng = torch.Generator().manual_seed(0)
+    coll = SharedPrefixCollator(s_phys=512, block_size=B, rng=rng, n_masks=4)
+    ex = make_example(P=16, R=20, seed=4)
+    row = coll([ex])[0]
+    P, R = 16, 24
+    assert (row.stream_id[: P + R] == 0).all()
+    for k in range(4):
+        seg = slice(P + R + k * R, P + R + (k + 1) * R)
+        assert (row.stream_id[seg] == k + 1).all()
+        assert (row.position_ids[seg] == torch.arange(P, P + R)).all()
+
+    m = build_dlm_bool_mask(row.position_ids.unsqueeze(0), row.doc_id.unsqueeze(0),
+                            row.stream_id.unsqueeze(0), block_size=B)[0, 0]
+    q = P + R                      # first noisy slot of stream 1 (logical P)
+    assert m[q, P - 1]             # earlier-block clean context is visible
+    assert not m[q, P + 2 * R]     # the sibling stream's copy is not
+
+
+def test_k_masks_supervise_at_the_bernoulli_rate():
+    """K independent draws: a response token lands in the masked set with
+    probability t per stream, not exactly once."""
+    rng = torch.Generator().manual_seed(1)
+    coll = SharedPrefixCollator(s_phys=2048, block_size=B, rng=rng, n_masks=4)
+    ex = make_example(P=16, R=60, seed=5)
+    row = coll([ex])[0]
+    P, R = 16, 64
+    e = 60
+    for k in range(4):
+        seg = slice(P + R + k * R, P + R + (k + 1) * R)
+        # a teacher is present, so the masked draw is the CAD position
+        rate = float(row.cad_mask[seg][:e].float().mean())
+        t = float(row.t[seg.start])
+        assert abs(rate - t) < 0.25, (k, rate, t)

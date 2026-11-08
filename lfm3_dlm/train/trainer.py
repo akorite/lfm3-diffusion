@@ -64,6 +64,7 @@ class DLMTrainer:
             s_phys=config.get("s_phys", 4096),
             block_size=config.get("block_size", 32),
             rng=self.rng,
+            n_masks=config.get("n_masks", 2),
         )
         if config.get("freeze_mlps", True):
             freeze_mlp_weights(model, fp8=config.get("fp8_mlps", False))
