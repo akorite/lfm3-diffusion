@@ -4,9 +4,9 @@ Each packed example contributes four physical streams:
 
 * `P` + `R_clean`: prompt then clean response (Dream shift: position at
   logical index `l` predicts clean token `l+1`). Prompt positions carry
-  weight 0; `R_clean` position `l >= P` supervises response token
-  `l+1-P` — so response token 0 is supervised by the noisy streams, not
-  by the prompt tail.
+  weight 0 except the last (`P-1`), which supervises response token 0;
+  `R_clean` position `l >= P` supervises response token `l+1-P`. Noisy
+  position `j` supervises response token `j+1`.
 * `R_m1` / `R_m2`: noisy copies of the same response under complementary
   Bernoulli(`t`) masks `(m, 1-m)`, `t ~ U[0.35, 0.95]` per document
   (P-POTS stratification). A selected position is replaced by the mask
@@ -58,14 +58,6 @@ class PackedSequence:
 
 def _round_up(n: int, mult: int) -> int:
     return max(mult, -(-n // mult) * mult)
-
-
-def _gather_teacher(teacher: dict, j: int, s: int) -> tuple[int, torch.Tensor, float]:
-    """Return (token_id, logprob row, residual) for response position j."""
-    ids = teacher["teacher_ids"][:, j]
-    lps = teacher["teacher_logprobs"][:, j]
-    res = teacher["teacher_residual"][j]
-    return ids, lps, res
 
 
 class SharedPrefixCollator:
@@ -172,7 +164,6 @@ class SharedPrefixCollator:
         e = len(resp) - 1  # index of supervised im_end
         assert resp[e].item() == self.im_end_id, "response must end in im_end"
 
-        clean_doc = torch.cat([prompt, resp])  # length L, never padded tail
         # R positions are padded to a multiple of B with the mask token in
         # the response slots of R_clean (logical P+j, j >= len(resp)).
         clean_tokens = torch.cat(
@@ -181,6 +172,10 @@ class SharedPrefixCollator:
         tid = ex.get("teacher_ids")
         tlp = ex.get("teacher_logprobs")
         tres = ex.get("teacher_residual")
+        # phase-2 on-manifold corruption: the student's own top-1 per response
+        # position replaces the teacher draw, and CE (not CAD) supervises it
+        oid = ex.get("oput_ids")
+        cad = tid is not None and oid is None
 
         # --- noise level, complementary masks over supervised j in [0, e]
         t = T_LOW + (T_HIGH - T_LOW) * torch.rand((), generator=g, device=dev).item()
@@ -188,7 +183,9 @@ class SharedPrefixCollator:
 
         # corruption draws
         use_mask_tok = torch.rand(e + 1, generator=g, device=dev) < MASK_TOKEN_FRAC
-        if tid is not None:
+        if oid is not None:
+            confusions = oid[: e + 1].to(dev)
+        elif tid is not None:
             cand_k = torch.randint(1, TOP_K, (e + 1,), generator=g, device=dev)
             confusions = tid[cand_k, torch.arange(e + 1, device=dev)]
         else:
@@ -230,7 +227,7 @@ class SharedPrefixCollator:
                 if j + 1 <= e:
                     labels[seg.start + j] = resp[j + 1]
             # teacher rows live on predictor positions j in [0, e-1]
-            if tid is not None:
+            if cad:
                 for j in range(R - 1):
                     if j + 1 > e:
                         break
@@ -240,7 +237,12 @@ class SharedPrefixCollator:
             for j in range(e):  # j+1 <= e: supervised target exists
                 phys = seg.start + j
                 if sel[j]:
-                    cad_mask[phys] = True
+                    if cad:
+                        cad_mask[phys] = True
+                    else:
+                        # no teacher distribution to distil: plain CE on the
+                        # corrupted slot instead of a degenerate CAD target
+                        ce_weight[phys] = 1.0
                 else:
                     ce_weight[phys] = REVEALED_CE_WEIGHT
             t_field[seg] = t

@@ -18,6 +18,7 @@ import yaml
 from .collator import SharedPrefixCollator
 from .loss_cad import compute_step_loss
 from .fp8_mlp import freeze_mlp_weights
+from ..masks import BLOCK_WARMUP_SCHEDULE
 
 
 def load_config(path: str | Path) -> dict:
@@ -32,7 +33,8 @@ def cosine_lr(step: int, total_steps: int, warmup_steps: int, lr_max: float, lr_
     return lr_min + 0.5 * (lr_max - lr_min) * (1 + math.cos(math.pi * min(t, 1.0)))
 
 
-def block_size_for_tokens(tokens_seen: int, warmup_tokens: int, stages=(4, 8, 16, 32)) -> int:
+def block_size_for_tokens(tokens_seen: int, warmup_tokens: int,
+                          stages=BLOCK_WARMUP_SCHEDULE) -> int:
     frac = min(tokens_seen / max(1, warmup_tokens), 1.0)
     idx = min(int(frac * len(stages)), len(stages) - 1)
     return stages[idx]
@@ -47,6 +49,11 @@ class DLMTrainer:
         self.config = config
         self.tokens_seen = 0
         self.step = 0
+        # the packed rows only mean anything under the block-diffusion mask;
+        # a causal model would leak each noisy stream its own targets
+        self.attention_mode = config.get("attention_mode", "block_diffusion")
+        if getattr(model.config, "attention_mode", None) != self.attention_mode:
+            model.config.attention_mode = self.attention_mode
         self.rng = torch.Generator(device=device)
         self.rng.manual_seed(config.get("seed", 0))
         self.collator = SharedPrefixCollator(
@@ -56,8 +63,15 @@ class DLMTrainer:
         )
         if config.get("freeze_mlps", True):
             freeze_mlp_weights(model)
+        # the tied embedding keeps only the mask row's gradient, so it must
+        # not decay either: its other rows have to stay bit-identical
+        emb_w = model.model.embed_tokens.weight
+        decayed = [p for p in model.parameters() if p.requires_grad and p is not emb_w]
         self.optimizer = torch.optim.AdamW(
-            [p for p in model.parameters() if p.requires_grad],
+            [
+                {"params": decayed},
+                {"params": [emb_w], "weight_decay": 0.0},
+            ],
             lr=config["lr_max"],
         )
 
@@ -90,8 +104,11 @@ class DLMTrainer:
         for g in self.optimizer.param_groups:
             g["lr"] = lr
         self.collator.block_size = block_size_for_tokens(
-            self.tokens_seen, cfg.get("block_warmup_tokens", 0)
+            self.tokens_seen, cfg.get("block_warmup_tokens", 0),
+            tuple(cfg.get("block_stages", BLOCK_WARMUP_SCHEDULE)),
         )
+        if self._oput_due():
+            examples = self._oput_corrupt(examples)
 
         rows = self.collator(examples)
         total_loss = 0.0
@@ -101,6 +118,8 @@ class DLMTrainer:
             out = self.model.model(
                 input_ids=row.input_ids.unsqueeze(0),
                 position_ids=row.position_ids.unsqueeze(0),
+                doc_ids=row.doc_id.unsqueeze(0),
+                stream_ids=row.stream_id.unsqueeze(0),
             )
             hidden = out.last_hidden_state.squeeze(0)
             gs = self._gather(row)
@@ -116,6 +135,35 @@ class DLMTrainer:
         self.optimizer.step()
         self.step += 1
         return total_loss
+
+    # ---------------------------------------------------------------
+    def _oput_due(self) -> bool:
+        """Phase-2 gate: past the boundary, `oput_ratio` of steps take a
+        detached student pass for on-manifold corruption."""
+        cfg = self.config
+        ratio = float(cfg.get("oput_ratio", 0.0))
+        boundary = cfg.get("phase1_boundary_tokens")
+        if ratio <= 0.0 or boundary is None or self.tokens_seen < boundary:
+            return False
+        return float(torch.rand((), generator=self.rng)) < ratio
+
+    @torch.no_grad()
+    def _oput_corrupt(self, examples: list[dict]) -> list[dict]:
+        """Attach the student's own top-1 per response position as the
+        corruption source (`oput_ids`) for the packed collator."""
+        classifier = self.model.get_output_classifier()
+        out_examples = []
+        for ex in examples:
+            prompt = torch.as_tensor(ex["prompt_ids"], dtype=torch.long, device=self.device)
+            resp = torch.as_tensor(ex["response_ids"], dtype=torch.long, device=self.device)
+            ids = torch.cat([prompt, resp]).unsqueeze(0)
+            hidden = self.model.model(input_ids=ids).last_hidden_state[0]
+            # position P-1+j predicts response token j
+            pred = hidden[len(prompt) - 1 : len(prompt) - 1 + len(resp)]
+            ex = dict(ex)
+            ex["oput_ids"] = (pred.float() @ classifier.float().t()).argmax(-1)
+            out_examples.append(ex)
+        return out_examples
 
     # ---------------------------------------------------------------
     def save_checkpoint(self, path: str | Path) -> None:
