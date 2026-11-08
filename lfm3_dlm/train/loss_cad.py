@@ -194,21 +194,7 @@ def compute_step_loss(
 
 
 @torch.no_grad()
-def oput_corrupt(
-    hidden: torch.Tensor,
-    classifier: torch.Tensor,
-    embed: torch.Tensor,
-    mask_embed: torch.Tensor,
-    n_corrupt: int,
-    rng: torch.Generator | None = None,
-) -> torch.Tensor:
-    """Phase-2 DMax OPUT helper: detached student pass, then corrupt
-    `n_corrupt` response positions with the inference blend
-    `pi * e(yhat) + (1 - pi) * e_mask`, `pi ~ U[0,1]` (soft-embedding
-    corruption is for the *pass*; DMax never trains soft inputs — the
-    caller replaces blended positions with sampled hard ids if needed).
-
-    Returns `yhat` [S] argmax ids from the detached pass.
-    """
-    logits = hidden.float() @ classifier.float().t()
-    return logits.argmax(-1)
+def oput_corrupt(hidden: torch.Tensor, classifier: torch.Tensor) -> torch.Tensor:
+    """Detached student top-1 over the sliced classifier: the on-manifold
+    corruption source for the phase-2 OPUT steps."""
+    return (hidden.float() @ classifier.float().t()).argmax(-1)

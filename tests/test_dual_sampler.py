@@ -187,3 +187,14 @@ def test_batched_rows_match_their_single_row_runs():
     batched = generate(model, pair, **kwargs).ids
     assert batched[0, 6:].tolist() == solo_a.tolist()
     assert batched[1, 6:].tolist() == solo_b.tolist()
+
+
+def test_ar_trust_parity_past_the_sliding_window():
+    """Once the prefix outgrows the SWA ring, the cached slots hold only the
+    trailing window: their logical positions must be the tail of the row's
+    position map, not its head."""
+    model = make_model(["conv", "sliding_attention"], window=8)
+    ids = torch.randint(0, 100_000, (1, 6))
+    res = generate(model, ids, mode="ar_trust", max_new_tokens=20,
+                   isd_width=4)
+    assert res.ids[0, 6:].tolist() == greedy_reference(model, ids, 20)

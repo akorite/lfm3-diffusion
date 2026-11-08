@@ -16,7 +16,7 @@ import torch
 import yaml
 
 from .collator import SharedPrefixCollator
-from .loss_cad import compute_step_loss
+from .loss_cad import compute_step_loss, oput_corrupt
 from .fp8_mlp import freeze_mlp_weights
 from ..masks import BLOCK_WARMUP_SCHEDULE
 
@@ -49,11 +49,10 @@ class DLMTrainer:
         self.config = config
         self.tokens_seen = 0
         self.step = 0
-        # the packed rows only mean anything under the block-diffusion mask;
-        # a causal model would leak each noisy stream its own targets
-        self.attention_mode = config.get("attention_mode", "block_diffusion")
-        if getattr(model.config, "attention_mode", None) != self.attention_mode:
-            model.config.attention_mode = self.attention_mode
+        mode = config.get("attention_mode", "block_diffusion")
+        if mode not in ("causal", "block_diffusion"):
+            raise ValueError(f"unknown attention_mode {mode!r}")
+        model.config.attention_mode = mode
         self.rng = torch.Generator(device=device)
         self.rng.manual_seed(config.get("seed", 0))
         self.collator = SharedPrefixCollator(
@@ -63,17 +62,18 @@ class DLMTrainer:
         )
         if config.get("freeze_mlps", True):
             freeze_mlp_weights(model)
-        # the tied embedding keeps only the mask row's gradient, so it must
-        # not decay either: its other rows have to stay bit-identical
-        emb_w = model.model.embed_tokens.weight
-        decayed = [p for p in model.parameters() if p.requires_grad and p is not emb_w]
-        self.optimizer = torch.optim.AdamW(
-            [
-                {"params": decayed},
+        # frozen embedding rows carry no gradient; decay would still move
+        # them, so the tied table sits in a no-decay group
+        emb_w = model.get_input_embeddings().weight
+        if config.get("freeze_mlps", True):
+            groups = [
+                {"params": [p for p in model.parameters()
+                            if p.requires_grad and p is not emb_w]},
                 {"params": [emb_w], "weight_decay": 0.0},
-            ],
-            lr=config["lr_max"],
-        )
+            ]
+        else:
+            groups = [{"params": [p for p in model.parameters() if p.requires_grad]}]
+        self.optimizer = torch.optim.AdamW(groups, lr=config["lr_max"])
 
     # ---------------------------------------------------------------
     def _gather(self, row) -> dict:
@@ -161,7 +161,7 @@ class DLMTrainer:
             # position P-1+j predicts response token j
             pred = hidden[len(prompt) - 1 : len(prompt) - 1 + len(resp)]
             ex = dict(ex)
-            ex["oput_ids"] = (pred.float() @ classifier.float().t()).argmax(-1)
+            ex["oput_ids"] = oput_corrupt(pred, classifier)
             out_examples.append(ex)
         return out_examples
 

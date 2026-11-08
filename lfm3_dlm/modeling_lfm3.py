@@ -914,8 +914,6 @@ class Lfm3ForCausalLM(Lfm3PreTrainedModel, GenerationMixin):
 
         loss = None
         if labels is not None:
-            # the dead vocab rows (mask 125033 + codec ids) must not enter the
-            # softmax denominator; every other path already slices them off
             loss = self.loss_function(
                 logits=logits[..., :OUTPUT_VOCAB_BOUNDARY],
                 labels=labels,

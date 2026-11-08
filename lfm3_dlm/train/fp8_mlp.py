@@ -32,8 +32,6 @@ class _FrozenMatMul(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x, w, w_t):
-        # the input is kept only while the weights are trainable (the KTD2
-        # unfreeze fallback); frozen weights pay no activation retention
         if w.requires_grad or w_t.requires_grad:
             ctx.save_for_backward(x, w_t)
             ctx.has_x = True
@@ -72,8 +70,6 @@ class _FrozenMatMul(torch.autograd.Function):
                 ).view(*dy.shape[:-1], w_t.shape[0])
             else:
                 dx = dy.to(torch.bfloat16) @ w_t.to(torch.bfloat16).t()
-        # `w` and its transposed copy are the same matrix, so unfreezing them
-        # hands each one the other's gradient transposed and they stay in step
         dw = dw_t = None
         if x is not None and (ctx.needs_input_grad[1] or ctx.needs_input_grad[2]):
             d = (dy.reshape(-1, dy.shape[-1]).to(torch.bfloat16).t()
@@ -129,7 +125,7 @@ def freeze_mlp_weights(model: nn.Module, fp8: bool = None) -> int:
     emb.weight.requires_grad_(True)  # mask row must learn
     keep = torch.zeros(emb.weight.shape[0], 1, dtype=emb.weight.dtype, device=emb.weight.device)
     keep[MASK_TOKEN_ID] = 1.0
-    emb.weight.register_hook(lambda g: g * keep)
+    emb.weight.register_hook(lambda g: g.mul_(keep))
     return n
 
 

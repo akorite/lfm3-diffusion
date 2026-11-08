@@ -33,10 +33,14 @@ class ParityReport:
     acceptance_efficiency: float = 0.0 # mean_accepted_len / stride
     predicted_tpf: float = 0.0         # analytical tokens/forward
     realized_tpf: float = 0.0          # emitted / n_forwards from the sampler
-    expected_tpf: float = 0.0          # emitted / num_steps (caller-computed)
     tok_per_s: float = 0.0
     speedup_vs_ar: float = 0.0         # realized_tpf / 1.0
     details: dict = field(default_factory=dict)
+
+    @property
+    def expected_tpf(self) -> float:
+        """Analytic tokens/forward implied by the acceptance statistics."""
+        return self.predicted_tpf
 
 
 def _parity_prefix(emitted: list[int], reference: list[int]) -> int:
@@ -137,9 +141,6 @@ def simulate_parity(model, generate_fn, prompt: torch.Tensor,
         # each verify round commits <= stride+1 tokens in exactly 2 forwards
         rep.predicted_tpf = (rep.mean_accepted_len or 1.0) / 2.0
         rep.realized_tpf = res.tpf
-        # analytical prediction from the acceptance statistics, so the
-        # comparison against realized TPF measures agreement, not identity
-        rep.expected_tpf = rep.predicted_tpf
         rep.tok_per_s = n / max(elapsed, 1e-9)
         rep.speedup_vs_ar = rep.realized_tpf / 1.0
         reports["ar_trust"].append(rep)
@@ -160,9 +161,6 @@ def simulate_parity(model, generate_fn, prompt: torch.Tensor,
         rep.kl_vs_ar = kl
         rep.predicted_tpf = rep.mean_accepted_len
         rep.realized_tpf = res.tpf
-        # analytical prediction from the acceptance statistics, so the
-        # comparison against realized TPF measures agreement, not identity
-        rep.expected_tpf = rep.predicted_tpf
         rep.tok_per_s = n / max(elapsed, 1e-9)
         rep.speedup_vs_ar = rep.realized_tpf / 1.0
         reports["spd"].append(rep)

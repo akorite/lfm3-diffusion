@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 
 import torch
 
+from ..masks import additive_mask
 from ..tokenizer import MASK_TOKEN_ID
 from .cache import PrefixCache
 
@@ -58,11 +59,6 @@ class _Row:
 
 # ---------------------------------------------------------------------------
 # masks
-
-
-def _additive(bool_mask: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
-    return torch.zeros_like(bool_mask, dtype=dtype).masked_fill(
-        ~bool_mask, torch.finfo(dtype).min)
 
 
 def build_step_mask(
@@ -102,9 +98,7 @@ def build_step_mask(
     )
     if layer_type == "sliding_attention" and sliding_window is not None:
         allowed &= ((ql - kl) < sliding_window) | noisy_pair
-    # [B, 1, S, K]: without the head axis SDPA reads the batch dim as heads
-    # and any batch > 1 fails
-    return _additive(allowed, dtype).unsqueeze(1)
+    return additive_mask(allowed, dtype).unsqueeze(1)
 
 
 # ---------------------------------------------------------------------------
@@ -252,16 +246,12 @@ class _Sampler:
             if t == "conv":
                 masks[t] = None
                 continue
+            if t in masks:
+                continue  # keyed by layer type: one build serves every layer
             phys = self.cache.cache.layers[i].keys.shape[-2]
-            # cache slots carry each row's own logical position, never the
-            # shared physical index: rows commit at different rates
-            cp = self.cache_pos[:, :phys]
-            if cp.shape[1] < phys:
-                cp = torch.cat([
-                    torch.full((self.B, phys - cp.shape[1]), -1,
-                               dtype=torch.long, device=self.device),
-                    cp,
-                ], dim=1)
+            # `phys` is the trailing window on sliding layers, so the cached
+            # slots are the tail of the per-row position map
+            cp = self.cache_pos[:, self.cache_pos.shape[1] - phys:]
             kv_pos = torch.cat([cp, fed_pos], dim=1)
             kv_block = torch.cat([
                 torch.full((self.B, phys), -_BIG, dtype=torch.long,
@@ -290,8 +280,6 @@ class _Sampler:
                          past_key_values=self.cache.cache, use_cache=True)
         self.n_forwards += 1
         self.cache.appended += s_max
-        # re-fed positions invalidate the copies written earlier (rejected
-        # drafts), then the new slots record each row's own logical position
         for r in range(self.B):
             fresh = fed_pos[r][fed_valid[r]]
             if fresh.numel() and base_idx:
