@@ -24,6 +24,9 @@ fi
 python scripts/finish_run.py --run /content/run4 --cache /content/cache3 \
   --export /content/export --out /content/FINAL.json
 
+# the export must load as an LFM3 model and keep its mask embedding row
+python scripts/assert_export.py --path /content/export | tee /content/export_check.json
+
 # trained measurements
 python scripts/heldout_eval.py --weights /content/run4/final-weights.pt \
   --out /content/heldout_trained.json --count 40
