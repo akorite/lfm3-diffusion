@@ -44,7 +44,7 @@ Byte-level inspection of `LiquidAI/LFM3-1.7B-NVFP4` and 7 open-source 2025–202
 - **R2. Exact hybrid state handoff.** All 13 `Lfm3ShortConv` layers remain causal within blocks and seed each noisy block with the exact `W-1 = 6` preceding *clean* `Bx` tokens (`0` across packed document boundaries); all 5 `SWA-256` layers gate windows on logical RoPE position, never physical tensor index.
 - **R3. Preserved clean-stream AR fidelity.** With `attention_mode="causal"`, forward logits match upstream `LiquidAI/LFM3-1.7B` within BF16 tolerance, and training retains causal clean-stream supervision (`L_AR`) so one checkpoint supports both parallel diffusion and lossless `AR-Trust` self-verification.
 - **R4. Single-stage parallel-ready objective.** Train over shared-prefix packed `[P | R_clean | R_m1 | R_m2]` sequences (`B=32`, Dream token shift) combining `CForce` Confidence-Adaptive KL against offline Top-16 BF16 teacher logprobs, `DMax` on-manifold token corruption (`OPUT`), and clean-stream `L_AR`, supervising only the first `im_end` (`124900`) and zero-weighting mask block-tail padding; labels are computed per stream (`−100` at every stream tail and packed `doc_id` boundary) so no predictor supervises its own target through `R_clean`.
-- **R5. Dual-mode cached sampler.** Inference caches both `K/V` (11 attention layers) and the 6-token `Bx` halo (13 `ShortConv` layers) across committed blocks plus `small_block=8` sub-block KV, running `DMax` Soft Parallel Decoding (`SPD`) by default and auto-switching to lossless `AR-Trust` strided verification inside `<tool_call>...</tool_call>` or strict JSON mode.
+- **R5. Dual-mode cached sampler.** Inference caches both `K/V` (11 attention layers) and the 6-token `Bx` halo (13 `ShortConv` layers) across committed blocks plus `small_block=8` sub-block KV, running `DMax` Soft Parallel Decoding (`SPD`) by default and auto-switching to lossless `AR-Trust` strided verification inside `tool_call` (tokens `125019`/`125020`) or strict JSON mode.
 - **R6. Locked evaluation & token-parity simulation.** Evaluate AR baseline and converted checkpoints under one pinned harness (math, code, IFEval, and BFCL/XML tool-call schema validity), reporting per-benchmark-family retention and iso-precision wall-clock `tok/s` (BF16 vs BF16, PerRow-FP8 vs PerRow-FP8, NVFP4 vs NVFP4) alongside the headline speedup, plus a token-parity simulator that measures exact token-for-token agreement, divergence step, and step-budget efficiency (`TPF` and wall-clock `tok/s`) against the AR baseline; never compare dLM ELBO to AR perplexity.
 - **R7. Budget-bounded execution.** Complete offline teacher caching, conversion training (`300M` corpus tokens = 2 epochs), and evaluation within `≤90 CU` on `1× G4`, never stopping or modifying the operator's active `L4` session. Phase 1 carries a `150M`-token retention checkpoint (record: no published sub-`1B`-token conversion has demonstrated ≥95% parity retention — `300M` is a Phase-1 budget, not a parity guarantee).
 - **R8. Tri-format deliverable.** Export and smoke-verify BF16 (`3.46 GB`), `compressed-tensors` PerChannel-W8/PerRow-A8 `FP8_DYNAMIC` (`2.21 GB` for `L4`/`G4`), and Masked-Calibration-Simulated (`MCS`) `NVFP4` (`1.83 GB` for `G4`/Blackwell) under LFM Open License v1.0.
@@ -62,7 +62,7 @@ Byte-level inspection of `LiquidAI/LFM3-1.7B-NVFP4` and 7 open-source 2025–202
 - **SC1 (Parallelism & Speed).** Converted checkpoint achieves **≥4.5 TPF** (target `5.0–6.8 TPF`; cross-architecture estimate from `DMax`/LLaDA-MoE lineage, pending `U6` parity-sim measurement) on math/code/`think` prompts under `SPD`, **≥2.5 TPF** with **100% XML/JSON parse validity** on `tool_call` prompts under `AR-Trust`, and **≥3.5× single-stream `tok/s`** over BF16 AR on `G4` (NVFP4/FP8) and `L4` (PerRow-FP8) measured iso-precision (BF16 vs BF16, PerRow-FP8 vs PerRow-FP8, NVFP4 vs NVFP4) so quantization bandwidth never substitutes for parallelism gains.
 - **SC2 (Capability Retention).** Retains **≥90% SPD-mode / ≥95% `AR-Trust`-verified** of `LiquidAI/LFM3-1.7B`'s score on the pinned math/code/IFEval/tool-call eval suite (within `−3.0` average points, reported per benchmark family). The clean stream is structurally preserved by `L_AR` + the frozen trunk, and `tool_call` spans already route through `AR-Trust`; the `150M`-token retention gate in `U7` confirms or aborts Phase 1.
 - **SC3 (Budget & Throughput).** `G4` training sustains **≥22k corpus tokens/s** (`≥40k` physical tokens/s) with peak VRAM `<65 GB` (no activation checkpointing), finishing end-to-end under `90 CU`.
-- **SC4 (Invariants as Tests).** R1 (masked output-head exclusion), R2 (bit-exact `ShortConv` clean-halo equivalence & logical-pos SWA), and R3 (causal logit equivalence) are enforced by automated CPU tests before any `G4` session launches.
+- **SC4 (Invariants as Tests).** R1 (sliced output-head exclusion), R2 (bit-exact `ShortConv` clean-halo equivalence & logical-pos SWA), and R3 (causal logit equivalence) are enforced by automated CPU tests before any `G4` session launches.
 
 ### Scope Boundaries
 
@@ -98,7 +98,7 @@ Primary code & checkpoints inspected: `LiquidAI/LFM3-1.7B`, `LiquidAI/LFM3-1.7B-
 - **Dream Token Shift preserved**: Position `i-1` predicts token `i` (`+15` GSM8K pts in DiffuLLaMA; free first token of block `b+1` on clean block commit in `Fast-dLLM v2`).
 
 **KTD2. Mixer-Only Full-Rank BF16 Training (`334.2M` Params) + Fused Static-FP8 Frozen MLPs (`1,132.5M`).**
-Freeze `embed_tokens[0:125033]` (`262.1M`) and all 24 SwiGLU MLPs (`1,132.5M`), Concatenate frozen `w1` + `w3` into `w13 [15360, 2048]` and store frozen `w13, w2` (and contiguous transposes for `dgrad`) in per-channel `float8_e4m3fn` (`torch._scaled_mm` inside a custom dgrad-only `autograd.Function` per `U3` — `torchao`'s `Float8Linear` computes `wgrad` unconditionally even on frozen weights, so it wraps only the trainable mixer linears), running `77.2%` of trunk forward+`dgrad` on `G4`'s `1,000 TFLOPS` FP8 Tensor Cores with **zero `wgrad` (`-26.9%` FLOPs)** and **no activation checkpointing** (`~34 GB` peak VRAM at `M_phys = 16,384`). Train full-rank BF16 (`FP32` master AdamW = `3.34 GB`) on all `11 Lfm3Attention` (`q,k,v,o,gate_proj,q/k_norm`), all `13 Lfm3ShortConv` (`in_proj,conv,out_proj`), all `96 Sandwich RMSNorms`, and mask row `125033` (initialized via `copy_pad_embedding_to_mask`).
+Freeze `embed_tokens[0:125033]` (`262.1M`) and all 24 SwiGLU MLPs (`1,132.5M`); concatenate frozen `w1` + `w3` into `w13 [15360, 2048]` and store frozen `w13, w2` (and contiguous transposes for `dgrad`) in per-channel `float8_e4m3fn` (`torch._scaled_mm` inside a custom dgrad-only `autograd.Function` per `U3` — `torchao`'s `Float8Linear` computes `wgrad` unconditionally even on frozen weights, so it wraps only the trainable mixer linears), running `77.2%` of trunk forward+`dgrad` on `G4`'s `1,000 TFLOPS` FP8 Tensor Cores with **zero `wgrad` (`-26.9%` FLOPs)** and **no activation checkpointing** (`~34 GB` peak VRAM at `M_phys = 16,384`). Train full-rank BF16 (`FP32` master AdamW = `3.34 GB`) on all `11 Lfm3Attention` (`q,k,v,o,gate_proj,q/k_norm`), all `13 Lfm3ShortConv` (`in_proj,conv,out_proj`), all `96 Sandwich RMSNorms`, and mask row `125033` (initialized via `copy_pad_embedding_to_mask`).
 - *Fallback gate*: If validation code-AST pass rate at `250M` tokens trails AR by >3 pts, run a `50M`-token polish unfreezing MLPs at differential `LR = 1e-6` (`mixers = 2e-5`) via `torchao.float8.convert_to_float8_training(model, config=Float8LinearConfig.from_recipe_name("rowwise"), module_filter_fn=<frozen MLP modules>)`.
 
 **KTD3. Offline Self-Generated Trajectory + Compact `68 B/tok` Top-16 BF16 Logprob Cache.**
@@ -125,14 +125,14 @@ Pin benchmark suite (`GSM8K`, `MATH-500`, `HumanEval-Plus`, `IFEval`, `BFCL-XML`
 
 **KTD9. Dual Quantized Export (`PerRow-FP8` + Zero-Weight-Requant `MCS-NVFP4`).**
 1. **`LFM3-1.7B-Diffusion-FP8` (`2.21 GB`, `L4` & `G4` native)**: Export via `compressed-tensors` using **1D PerChannel-W8 + Dynamic PerRow-A8** (`FP8_DYNAMIC`, *not* `128×128` `FP8_BLOCK`) on `feed_forward.*` and `self_attn.{q,k,v,o}_proj`, keeping `conv*`, `gate_proj`, `embed/lm_head`, and norms in BF16 so `transformers` (`use_optimized_inference=True` + `torch.compile`) runs native `scaled_mm` FP8 Tensor Cores directly.
-2. **`LFM3-1.7B-Diffusion-NVFP4` (`1.83 GB`, `G4`/Blackwell flagship)**: When MLPs remain frozen (`KTD2`), splice trained BF16 mixers/norms/embeddings directly onto `LiquidAI/LFM3-1.7B-NVFP4`'s untouched `U8 + F8_E4M3` MLP tensors and run **256 Masked Calibration Simulation (`MCS`, `r ∈ [0.1..1.0]`) forwards (~30s = `0.1 CU`)** to update the **72 `F32` `input_scale` scalars** with diffusion headroom (plus ship a 25-line `transformers` `NVFP4Config` `kernels-community/nvfp4-gemm` loader scoped to **W4A16 GEMV at `M <= 2048` with standard BF16 KV** — W4A4 FP4 GEMM dispatch and commit-time FP4/FP8 KV move to Deferred long-context work; `nvfp4-gemm` API is unverified, `PerRow-FP8` stays the zero-risk fallback). If the MLP-unfreeze fallback ran, re-quantize MLPs via `nvidia-modelopt` `nvfp4_mlp_only_mse` + 500-step `QAD` (`~2.5 CU`, separate venv — `modelopt` pins `transformers<5.19`).
+2. **`LFM3-1.7B-Diffusion-NVFP4` (`1.83 GB`, `G4`/Blackwell flagship)**: When MLPs remain frozen (`KTD2`), splice trained BF16 mixers/norms/embeddings directly onto `LiquidAI/LFM3-1.7B-NVFP4`'s untouched `U8 + F8_E4M3` MLP tensors and run **256 Masked Calibration Simulation (`MCS`, `r ∈ {0.1,0.3,0.5,0.7,0.9,1.0}`) forwards (~30s = `0.1 CU`)** to update the **72 `F32` `input_scale` scalars** with diffusion headroom (plus ship a 25-line `transformers` `NVFP4Config` `kernels-community/nvfp4-gemm` loader scoped to **W4A16 GEMV at `M <= 2048` with standard BF16 KV** — W4A4 FP4 GEMM dispatch and commit-time FP4/FP8 KV move to Deferred long-context work; `nvfp4-gemm` API is unverified, `PerRow-FP8` stays the zero-risk fallback). If the MLP-unfreeze fallback ran, re-quantize MLPs via `nvidia-modelopt` `nvfp4_mlp_only_mse` + 500-step `QAD` (`~2.5 CU`, separate venv — `modelopt` pins `transformers<5.19`).
 
 ### High-Level Technical Design
 
 ```mermaid
 flowchart LR
   subgraph prep[Group 1 - CPU Verifiable]
-    A[LiquidAI/LFM3-1.7B<br/>Post-Trained BF16] --> B[U1: Vendor + mask 125033<br/>head masks 125033..127999]
+    A[LiquidAI/LFM3-1.7B<br/>Post-Trained BF16] --> B[U1: Vendor + mask 125033<br/>head sliced to :125033]
     B --> C[U2: Shared-Prefix FlexAttn<br/>+ 6-tok Clean ShortConv Halo<br/>+ Logical-Pos SWA-256]
     C --> D[U3: CCE return_lse + Top-16 CAD<br/>+ DMax OPUT + Static-FP8 Frozen MLPs]
     D --> E[U5/U6: Block KV+Bx Cache<br/>SPD + tool_call AR-Trust + Eval]
@@ -211,27 +211,27 @@ Waits on: nothing.
   1. `top16_cache.py`: Pack/unpack `16 × uint16` low IDs + `uint16` 17th-bit high mask + `16 × bf16` logprobs + `bf16` residual mass (`68 B/tok`), lossless over `0..127999`.
   2. `collator.py`: Build `[P | R_clean | R_m1 | R_m2]` padded to `S_phys = 4096`, `P-POTS` stratified `t ~ U[0.35, 0.95]`, complementary masks `(m, 1-m)`, `80/20` mask vs Top-16 confusion corruption, single `im_end` weight `1.0`, mask block-tail padding weight `0.0`, Dream right-shift alignment **with per-stream labels** — `labels[i] = −100` at every stream tail (`P+R−1`, `P+2R−1`, `R_clean` tail) and every packed `doc_id` boundary; noisy-stream labels gather the clean target at `logical_pos+1`, never a physical `input_ids` shift.
   3. `loss_cad.py`: Gather loss positions `h_valid`, compute `LSE` once via `cut-cross-entropy` (`return_lse=True, filter_eps=None`, sliced classifier `lm_head.weight[:125033]`, pure-PyTorch reference fallback on CPU), evaluate `CForce` `L_CAD` (`forward_KL + c_T * reverse_KL` over Top-16 **+ one tail bucket** `p_S(τ)log(p_S(τ)/p_T(τ))`, `c_T` over `top-16 ∪ {τ}`) + `0.2 * CE` (revealed positions only) + auto-balanced `L_AR` (`(L_CAD.detach()/L_AR.detach())·L_AR`, `causal_x0` assert), plus Phase-2 50%-step detached `DMax OPUT` pass corrupting with the inference blend (`π·e(ŷ)+(1−π)·e_mask`, `π~U[0,1]`) and `75M`-token resumable checkpointer.
-  4. `fp8_mlp.py`: Fuse `w1+w3 → w13`, freeze MLPs + active embeddings (exposing `unfreeze_mlp_lr=1e-6` flag). Frozen MLPs use a **custom `autograd.Function`** (forward `torch._scaled_mm` rowwise with col-major `w13_cm`/`w2_cm`, backward dgrad-only via `ctx.needs_input_grad[0]`) — `torchao`'s `Float8Linear` computes `wgrad` unconditionally even on frozen weights and would never deliver the `−26.9%` claim; `torchao` may still wrap the *trainable* mixer linears where `wgrad` is wanted. BF16 on CPU, guard `torch.inference_mode`.
+  4. `fp8_mlp.py`: Fuse `w1+w3 → w13`, freeze MLPs + active embeddings (exposing `unfreeze_mlp_lr=1e-6` flag). Frozen MLPs use a **custom `autograd.Function`** (forward `torch._scaled_mm` rowwise with col-major `w13_cm`/`w2_cm`, backward dgrad-only via `ctx.needs_input_grad[0]`) — `torchao`'s `Float8Linear` computes `wgrad` unconditionally even on frozen weights and would never deliver the `−26.9%` claim (mixer linears stay full-rank BF16 per `KTD2`; only frozen MLP weights go FP8). BF16 on CPU, guard `torch.inference_mode`.
 - **Test scenarios.**
   - `68 B/tok` codec round-trips boundary token IDs (`0`, `65535`, `65536`, `124900`, `125032`, `127999`) bit-identically.
-  - Reused-LSE `L_CAD` matches dense `128,000`-way FP64 reference forward+reverse KL (`atol=1e-4`), equals `0.0` when $p_\theta = p_T$, and increases reverse-KL sharpness monotonically with $c_T$.
+  - Reused-LSE `L_CAD` matches dense `125,033`-way (sliced support) FP64 reference forward+reverse KL (`atol=1e-4`), equals `0.0` when $p_\theta = p_T$, and increases reverse-KL sharpness monotonically with $c_T$.
   - Collator supervises every response token + first `im_end` exactly once across `(R_m1, R_m2)`, assigns zero gradient to `P` and mask tail padding, **and emits `−100` labels at every stream tail and `doc_id` boundary** (assert no supervised predictor attends its own label).
   - Resumable checkpoint restores identical step loss and RNG mask draws after reload.
 - **Verification.** All CPU unit tests pass + 2-step synthetic training loop updates all `334.2M`-equivalent mixer/norm/mask params while keeping frozen MLP & non-mask embedding weights bit-identical.
 
 #### U4. Checkpoint converter & standalone HF export (`convert.py`)
-- **Goal.**Deterministic conversion between `LiquidAI/LFM3-1.7B` and the standalone `lfm3_dlm` checkpoint directory (unfused `w1, w2, w3` preserved for downstream HF/NVFP4 compatibility) with LFM Open License v1.0 files.
+- **Goal.** Deterministic conversion between `LiquidAI/LFM3-1.7B` and the standalone `lfm3_dlm` checkpoint directory (unfused `w1, w2, w3` preserved for downstream HF/NVFP4 compatibility) with LFM Open License v1.0 files.
 - **Requirements.** R1, R3, R8, KD5
 - **Dependencies.** U1, U2, U3
-- **Files.** `lfm3_dlm/convert.py`, `tests/test_convert.py`, `tests/test_nvfp4_mcs_splice.py`, `README.md`
+- **Files.** `lfm3_dlm/convert.py`, `tests/test_convert.py`, `README.md`
 - **Approach.** Convert source checkpoint (or merge trained mixer state back into unfused `LFM3` layout), copy `LICENSE`/`NOTICE`, write self-contained modeling + config + tokenizer (`<|mask|>` registered).
 - **Test scenarios.**
   - Converted directory loads via `AutoModelForCausalLM.from_pretrained(..., trust_remote_code=True)`, matches causal AR logits (`atol=1e-3`), is idempotent across repeated runs, and includes `LICENSE`.
 - **Verification.** `pytest tests/test_convert.py` passes on CPU.
 
 #### U5. Block `KV + Bx` cached dual-mode sampler (`DMax SPD` + `<tool_call>` `AR-Trust`)
-- **Goal.** Fast single-stream & batched inference engine supporting `DMax` Soft Parallel Decoding (`SPD`) and automatic lossless `AR-Trust` / `ISD` verification inside `<tool_call>` or JSON-schema spans.
-- **Requirements.** R5, KD4, SC1
+- **Goal.** Fast single-stream & batched inference engine supporting `DMax` Soft Parallel Decoding (`SPD`) and automatic lossless `AR-Trust` / `ISD` verification inside `tool_call` (tokens `125019`/`125020`) or JSON-schema spans.
+- **Requirements.** R5, KD4, KTD6, SC1
 - **Dependencies.** U1, U2
 - **Files.** `lfm3_dlm/sample/cache.py`, `lfm3_dlm/sample/dual_sampler.py`, `tests/test_dual_sampler.py`
 - **Approach.**
@@ -240,7 +240,7 @@ Waits on: nothing.
 - **Test scenarios.**
   - `AR-Trust` greedy output is **100% token-for-token identical** to standard `B=1` causal AR greedy decoding on any model (including random 2-layer CPU weights!), **using causal-stream anchor `K/V` (two-stream forward or re-prefill)** — bidirectionally-committed `K/V` makes `p ≠ p_AR` and the guarantee false, while achieving `>1.0` TPF when draft predictions match.
   - Cached `B=32` / `small_block=8` step outputs match uncached full-prefix recomputation (`atol=1e-4`).
-  - Emitting `<tool_call>` mid-generation switches `SPD → AR-Trust` and `</tool_call>` switches back without corrupting `KV` or `Bx` caches; `<|im_end|>` terminates cleanly.
+  - Emitting `tool_call` open (`125019`) mid-generation switches `SPD → AR-Trust` and `tool_call` close (`125020`) switches back without corrupting `KV` or `Bx` caches; `im_end` (`124900`) terminates cleanly.
 - **Verification.** `pytest tests/test_dual_sampler.py` passes on CPU.
 
 #### U6. Locked evaluation & token-parity simulation harness
@@ -269,7 +269,7 @@ Waits on: PR group 1 merged and all CPU tests green. **Hard constraint: NEVER st
 - **Approach.**
   1. Provision dedicated session `colab new -s lfm3-g4 --gpu G4` (`48 vCPUs`, `189.9 GB` RAM, `97,887 MiB` Blackwell `CC 12.0`; auto-fallback `--gpu A100` in BF16 if `G4` stock is temporarily unavailable); run 5-minute throughput smoke (`≥22k` corpus tok/s on `G4` FP8 or `≥11k` on `A100` BF16, no AC).
   2. Run `build_teacher_cache.py` (`LiquidAI/LFM3-1.7B` compiled with `torchao` PerRow-FP8, `batch=256–512`, **`35%` `think` math/STEM, `30%` AST/test-verified code, `20%` XML `tool_call` traces, `15%` `enable_thinking=False` JSON/chat** per `KTD3` across `opdlm_train_data` + Nemotron tool/code/math) writing `150M` tokens (`10.2 GB` `68 B/tok` Top-16 BF16 cache, discarding any sequence without `im_end`).
-  3. Run `train_g4.py` for `300M` corpus tokens (`LR=5e-5 → 2e-6` cosine, warmup `40M` w/ block growth `4→8→16→32`, `O(1)` teacher-top-16 confusion `0–120M` → 50%-step `DMax OPUT` `120M–300M`, checkpoints synced every `75M` tokens); trigger `50M`-token `LR=1e-6` MLP-unfreeze polish only if code-AST gate requires it; average final Top-5 checkpoints.
+  3. Run `train_g4.py` for `300M` corpus tokens (`LR=5e-5 → 2e-6` cosine, warmup `40M` w/ block growth `4→8→16→32`, `O(1)` teacher-top-16 confusion `0–120M` → 50%-step `DMax OPUT` `120M–300M`, checkpoints synced every `75M` tokens); if the `50M`-token polish triggers, run it with MLPs at `LR=1e-6` and mixers held at `2e-5` (per `KTD2`); average final Top-5 checkpoints.
 - **Test scenarios.** Runbook smoke gate validates `tok/s`, finite grad norms across first 200 FP8 steps, decreasing `L_CAD` & `L_AR`, and live sample sanity before committing >5 CU.
 - **Verification.** `docs/runs/g4_phase0_phase1.md` records live `colab` harness metrics clearing SC1–SC3 while leaving `>150 CU` remaining.
 
@@ -277,7 +277,7 @@ Waits on: PR group 1 merged and all CPU tests green. **Hard constraint: NEVER st
 - **Goal.** Export and benchmark all three deployable checkpoints (`BF16`, `FP8_DYNAMIC`, `MCS-NVFP4`) and tear down ONLY `lfm3-g4`.
 - **Requirements.** R6, R8, KTD9, SC1, SC2
 - **Dependencies.** U5, U6, U7
-- **Files.** `scripts/export_fp8_nvfp4.py`, `MODEL_CARD.md`, `docs/runs/final_eval.md`
+- **Files.** `scripts/export_fp8_nvfp4.py`, `tests/test_nvfp4_mcs_splice.py`, `MODEL_CARD.md`, `docs/runs/final_eval.md`
 - **Approach.**
   1. Export `LFM3-1.7B-Diffusion-FP8` (`2.21 GB`, 1D PerChannel-W8 / Dynamic PerRow-A8 `compressed-tensors` on MLPs + `q,k,v,o_proj`) and verify native `scaled_mm` FP8 speed + accuracy.
   2. Export `LFM3-1.7B-Diffusion-NVFP4` (`1.83 GB`): splice trained BF16 mixers/norms/embeddings onto `LiquidAI/LFM3-1.7B-NVFP4`'s `U8 + F8_E4M3` MLP weights and run `256` Masked Calibration Simulation (`MCS`, `r ∈ {0.1,0.3,0.5,0.7,0.9,1.0}`) forwards to recalibrate all `72` `F32` `input_scale` scalars (plus ship the 25-line `NVFP4Config` **W4A16 GEMV loader scoped to `M <= 2048` with standard BF16 KV** — W4A4 dispatch and commit-time FP4/FP8 KV deferred to long-context work; `nvfp4-gemm` API unverified, `PerRow-FP8` fallback; or run `modelopt` PTQ+QAD in a separate venv if MLPs were unfrozen).
@@ -331,7 +331,7 @@ Waits on: PR group 1 merged and all CPU tests green. **Hard constraint: NEVER st
 
 | Candidate recipe | Training cost (sub-1.7B evidence) | Validation status | Why rejected / deferred |
 |---|---|---|---|
-| **BYOD** (`2603.x`) | `~77%` retention at LoRA floor on AR→dLM | Verified literature | Sets the mixer-only downside floor; pure-BYOD under-trains sequence mixers on a conv hybrid |
+| **BYOD** (preprint, no public arXiv ID) | `~77%` retention at LoRA floor on AR→dLM | Verified literature | Sets the mixer-only downside floor; pure-BYOD under-trains sequence mixers on a conv hybrid |
 | **LED / Repr-Align** (`2605.06885`) | `~2×` speedup, HumanEval ≥ baseline | Verified on `Qwen3-1.7B` (attention-only) | Adopted *inside* `KTD2` (freeze MLPs), but its conv-hybrid extrapolation is unproven → `150M` retention gate + MLP-unfreeze fallback |
 | **Nemotron-dLLM recipe** | Multi-phase SFT→RL pipeline | Verified algorithm | Token-global loss averaging adopted; full multi-phase schedule rejected — exceeds `90 CU` cap |
 | **SpecCTMC** | Continuous-time speculative correctness proof | Verified theory | `T>0`-only; our `T=0` AR-Trust path needs `I-DLM` `2N−1` + crop-on-reject instead |
