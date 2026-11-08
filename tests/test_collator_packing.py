@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from lfm3_dlm import Lfm3Config, Lfm3ForCausalLM
@@ -242,3 +243,21 @@ def test_k_masks_supervise_at_the_bernoulli_rate():
         rate = float(row.cad_mask[seg][:e].float().mean())
         t = float(row.t[seg.start])
         assert abs(rate - t) < 0.25, (k, rate, t)
+
+
+def test_packing_bound_is_p_plus_three_r():
+    """The cache builder and the corpus filter both gate on this: a row packs
+    iff P + (1+K)R (R rounded up) fits s_phys, and raises otherwise."""
+    from lfm3_dlm.train.collator import SharedPrefixCollator
+
+    s_phys, block, n_masks = 256, 8, 2
+    P, R = 64, 64                       # 64 + 3*64 == 256, exactly fits
+    ex = make_example(P=P, R=R - 1, seed=7)  # R-1 tokens + the im_end the helper adds
+    coll = SharedPrefixCollator(s_phys=s_phys, block_size=block, rng=torch.Generator().manual_seed(0))
+    row = coll([ex])[0]
+    assert row.input_ids.shape[0] == s_phys
+    assert (row.stream_id[: P + R] == 0).all()
+
+    big = make_example(P=P, R=R + block, seed=8)  # 64 + 3*96 > 256
+    with pytest.raises(ValueError, match="s_phys"):
+        coll([big])
