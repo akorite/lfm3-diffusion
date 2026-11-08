@@ -178,7 +178,9 @@ def compute_step_loss(
 
     if w_ar > 0 and ar_idx.numel():
         l_ar = ce_loss(hidden[ar_idx], classifier, ar_targets, lse_ar)
-        balanced = l_cad.detach() / l_ar.detach().clamp_min(AR_BALANCE_EPS) * l_ar
+        # with no CAD positions to balance against, the AR term stands alone
+        balanced = (l_ar if not n_cad
+                    else l_cad.detach() / l_ar.detach().clamp_min(AR_BALANCE_EPS) * l_ar)
         loss = l_cad + l_ce + w_ar * balanced
     else:
         l_ar = hidden.new_zeros(())

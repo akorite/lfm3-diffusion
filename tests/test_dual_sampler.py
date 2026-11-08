@@ -114,7 +114,7 @@ def test_cached_step_matches_uncached_recompute():
     q_valid = torch.ones(1, P + n, dtype=torch.bool)
     blocks = torch.zeros(1, P + n, dtype=torch.long)
     blocks[0, P:] = torch.tensor([b for _p, _k, b, _t in feeds])
-    kv_block = torch.full((1, P + n), -2**30, dtype=torch.long)
+    kv_block = torch.div(kv_pos[0], 8, rounding_mode="floor").unsqueeze(0)
     kv_block[0, P:] = blocks[0, P:]
     kv_fed = torch.zeros(1, P + n, dtype=torch.bool)
     kv_fed[0, P:] = True
@@ -172,12 +172,13 @@ def test_noisy_feeds_use_logical_block_ids():
         assert blk == pos // block, (pos, kind, blk)
 
 
-def test_batched_rows_match_their_single_row_runs():
+@pytest.mark.parametrize("seed", [0, 2, 10])
+def test_batched_rows_match_their_single_row_runs(seed):
     """Two prompts in one batch must decode exactly as they do alone; a shared
     cache cursor that treats the physical index as a logical position breaks
     this as soon as the rows commit at different rates."""
     model = make_model(["conv", "full_attention"])
-    torch.manual_seed(3)
+    torch.manual_seed(seed)
     a = torch.randint(0, 100_000, (1, 6))
     b = torch.randint(0, 100_000, (1, 6))
     pair = torch.cat([a, b])
@@ -198,3 +199,33 @@ def test_ar_trust_parity_past_the_sliding_window():
     res = generate(model, ids, mode="ar_trust", max_new_tokens=20,
                    isd_width=4)
     assert res.ids[0, 6:].tolist() == greedy_reference(model, ids, 20)
+
+
+def test_step_mask_restricts_noisy_queries_to_earlier_clean_blocks():
+    """Training lets a noisy query see clean context only from earlier
+    blocks; the sampler must not hand it the same-block tokens it predicts,
+    and must ignore slots that hold no committed position."""
+    q_pos = torch.tensor([[8, 9, 10, 11]])
+    q_noisy = torch.tensor([[True, True, False, False]])
+    q_valid = torch.ones(1, 4, dtype=torch.bool)
+    q_block = q_pos // 8
+    kv_pos = torch.tensor([[0, 1, 8, 9, 9, -1]])
+    kv_block = torch.div(kv_pos.clamp(min=0), 8, rounding_mode="floor")
+    kv_fed = torch.tensor([[False, False, True, True, True, False]])
+    kv_valid = torch.ones(1, 6, dtype=torch.bool)
+    # keys: 0,1 clean block 0; 8 noisy block 1; 9 noisy block 1; 9 clean block 1; -1 empty
+    kv_noisy = torch.tensor([[False, False, True, True, False, False]])
+    committed = torch.tensor([8])  # positions 0,1 are the committed prefix
+    m = build_step_mask("full_attention", None, q_pos, q_noisy, q_valid,
+                        q_block, kv_pos, kv_block, kv_fed, kv_valid,
+                        kv_noisy, committed, torch.float32)
+    allowed = m[0, 0] > -1e30
+    # noisy query at 8: earlier-block clean context yes, same-block clean no
+    assert allowed[0, 0] and allowed[0, 1]
+    assert not allowed[0, 4]
+    # its own noisy block stays bidirectional
+    assert allowed[0, 2] and allowed[0, 3]
+    # a slot with no committed position is never a key
+    assert not allowed[0, 5]
+    # a clean query sees the same-block clean slot causally
+    assert allowed[2, 4]

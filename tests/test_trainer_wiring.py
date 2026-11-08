@@ -89,6 +89,7 @@ def test_non_mask_embedding_rows_are_bit_identical_after_a_step():
     after = model.model.embed_tokens.weight.detach()
     assert torch.equal(before[:MASK_TOKEN_ID], after[:MASK_TOKEN_ID])
     assert torch.equal(before[MASK_TOKEN_ID + 1:], after[MASK_TOKEN_ID + 1:])
+    assert not torch.equal(before[MASK_TOKEN_ID], after[MASK_TOKEN_ID])
 
 
 def test_cad_supervision_requires_a_teacher_distribution():
@@ -119,3 +120,30 @@ def test_oput_ids_are_the_corruption_source():
             if float(row.ce_weight[seg.start + j]) == 1.0:
                 tok = int(row.input_ids[seg.start + j])
                 assert tok == MASK_TOKEN_ID or tok == int(oput[j])
+
+
+def test_phase_two_oput_branch_corrupts_from_the_student():
+    """Past the phase boundary the trainer takes a detached student pass and
+    hands the collator its own top-1 as the corruption source."""
+    torch.manual_seed(0)
+    model = tiny_model()
+    cfg = dict(tiny_cfg(), phase1_boundary_tokens=0, oput_ratio=1.0)
+    trainer = DLMTrainer(model, cfg)
+    assert trainer._oput_due() is True
+
+    ex = make_example(seed=9)
+    corrupted = trainer._oput_corrupt([ex])
+    oput = corrupted[0]["oput_ids"]
+    assert len(oput) == len(ex["response_ids"])
+
+    # the teacher cache is replaced by the student's own prediction
+    prompt = torch.tensor([ex["prompt_ids"]])
+    resp = torch.tensor([ex["response_ids"]])
+    with torch.no_grad():
+        hidden = model.model(input_ids=torch.cat([prompt, resp], 1)).last_hidden_state[0]
+    pred = hidden[len(ex["prompt_ids"]) - 1:][: len(ex["response_ids"])]
+    expect = (pred.float() @ model.get_output_classifier().float().t()).argmax(-1)
+    assert torch.equal(oput, expect)
+
+    row = trainer.collator(corrupted)[0]
+    assert int(row.cad_mask.sum()) == 0

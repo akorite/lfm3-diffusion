@@ -107,6 +107,8 @@ class DLMTrainer:
             self.tokens_seen, cfg.get("block_warmup_tokens", 0),
             tuple(cfg.get("block_stages", BLOCK_WARMUP_SCHEDULE)),
         )
+        # the mask reads the annealed size from the model config
+        self.model.config.diffusion_block_size = self.collator.block_size
         if self._oput_due():
             examples = self._oput_corrupt(examples)
 

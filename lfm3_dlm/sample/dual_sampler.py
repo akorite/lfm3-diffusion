@@ -76,28 +76,29 @@ def build_step_mask(
     committed: torch.Tensor,  # [B] clean KV length
     dtype: torch.dtype,
 ) -> torch.Tensor:
-    """Additive `[B, 1, S, K]` mask.
+    """Additive `[B, 1, S, K]` mask, mirroring `masks.build_dlm_bool_mask`.
 
-    Every query sees the committed prefix (`kv_pos < committed`); fed slots
-    are visible to a causal query iff `kv_pos <= q_pos`, and to a noisy
-    query iff the slot is a noisy key in the same block (bidirectional
-    within the block) or causal. Sliding layers additionally require
-    `q - kv < window` except inside the noisy block itself.
+    A causal query sees the committed prefix and this step's fed slots up
+    to its own position. A noisy query sees clean context only from
+    *earlier* blocks — the same rule training applies — plus the noisy
+    slots of its own block, bidirectionally. `kv_pos < 0` marks a slot
+    that no committed token occupies, so it is never a key.
     """
     ql = q_pos[:, :, None]
     kl = kv_pos[:, None, :]
+    qn = q_noisy[:, :, None]
+    kn = kv_noisy[:, None, :]
     same_block = q_block[:, :, None] == kv_block[:, None, :]
     fed_ok = kv_fed[:, None, :] & kv_valid[:, None, :]
-    causal_pair = kl <= ql
-    # clean fed keys at the query's own position or block stay out: they are
-    # the very tokens the noisy block predicts
-    noisy_pair = q_noisy[:, :, None] & same_block & fed_ok & kv_noisy[:, None, :]
-    allowed = q_valid[:, :, None] & (
-        ((kl < committed[:, None, None]) & causal_pair)
-        | (fed_ok & causal_pair) | noisy_pair
-    )
+    cache_ok = (kl >= 0) & (kl < committed[:, None, None])
+    visible = (cache_ok | fed_ok) & (kl <= ql)
+    valid_q = q_valid[:, :, None]
+    own_noisy_block = qn & kn & same_block & fed_ok
+    allowed = valid_q & (
+        (~qn & visible) | (qn & visible & (kv_block[:, None, :] < q_block[:, :, None]))
+    ) | (valid_q & own_noisy_block)
     if layer_type == "sliding_attention" and sliding_window is not None:
-        allowed &= ((ql - kl) < sliding_window) | noisy_pair
+        allowed &= ((ql - kl) < sliding_window) | own_noisy_block
     return additive_mask(allowed, dtype).unsqueeze(1)
 
 
@@ -254,8 +255,7 @@ class _Sampler:
             cp = self.cache_pos[:, self.cache_pos.shape[1] - phys:]
             kv_pos = torch.cat([cp, fed_pos], dim=1)
             kv_block = torch.cat([
-                torch.full((self.B, phys), -_BIG, dtype=torch.long,
-                           device=self.device),
+                torch.div(cp.clamp(min=0), self.block, rounding_mode="floor"),
                 fed_block,
             ], dim=1)
             kv_fed = torch.cat([
@@ -316,7 +316,17 @@ class _Sampler:
             + (1 - p.max()) * e_mask
 
     def _crop(self):
-        keep = max(row.committed for row in self.rows)
+        """Drop trailing slots no row still needs. The cache index is not a
+        logical position, so a row's committed prefix can end well before
+        the last physical slot."""
+        committed = torch.tensor([row.committed for row in self.rows],
+                                 device=self.device)
+        keep = self.cache.appended
+        while keep > 0:
+            col = self.cache_pos[:, keep - 1]
+            if bool((((col >= 0) & (col < committed)).any())):
+                break
+            keep -= 1
         self.cache.crop(keep)
         self.cache_pos = self.cache_pos[:, :keep]
 
@@ -343,6 +353,8 @@ class _Sampler:
                 row.in_tool = True
             elif tok == TOOL_CALL_CLOSE_ID and row.in_tool:
                 row.in_tool = False
+        # a step can emit several tokens, so record the switch as it happens
+        self._refresh_modes()
         return tok
 
     def _refresh_modes(self):
@@ -361,7 +373,7 @@ class _Sampler:
         C = row.committed
         pend = self._pending(row)
         n_pend = len(pend)
-        block_start = P + ((C - P) // B) * B
+        block_start = (C // B) * B  # training blocks are logical//B
         block_end = min(block_start + B, P + limit)
         n_noisy = min(block_end - (C + n_pend),
                       B if (C == block_start and n_pend == 0) else self.small)
@@ -550,6 +562,9 @@ def generate(model, input_ids, mode="hybrid_auto", max_new_tokens=64,
     if model.config.attention_mode != "causal":
         raise ValueError("the cached sampler drives the causal clean stream; "
                          "set attention_mode='causal'")
+    if input_ids.shape[0] > 1 and "sliding_attention" in model.config.layer_types:
+        raise ValueError("batched decoding shares one sliding-window ring, "
+                         "so a lagging row would lose its own window")
     with torch.inference_mode():
         eos = eos_token_ids if eos_token_ids is not None else (IM_END_ID,)
         sampler = _Sampler(model, input_ids, block_size, small_block, mode,
