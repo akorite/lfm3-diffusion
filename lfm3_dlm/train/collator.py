@@ -174,6 +174,10 @@ class SharedPrefixCollator:
         tid = ex.get("teacher_ids")
         tlp = ex.get("teacher_logprobs")
         tres = ex.get("teacher_residual")
+        # cache rows arrive on the host; the drawing indices live on the
+        # collator's device, so move the teacher tensors once here
+        if tid is not None:
+            tid, tlp, tres = tid.to(dev), tlp.to(dev), tres.to(dev)
         # phase-2 on-manifold corruption: the student's own top-1 per response
         # position replaces the teacher draw, and CE (not CAD) supervises it
         oid = ex.get("oput_ids")
