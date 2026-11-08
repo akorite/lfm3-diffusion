@@ -38,6 +38,9 @@ class Lfm3Config(PreTrainedConfig):
         Sliding-window size of the `sliding_attention` layers.
     use_sandwich_norm (`bool`, *optional*, defaults to `True`):
         Whether to apply an RMSNorm to the operator and feed-forward outputs before they enter the residual stream.
+    attention_mode (`str`, *optional*, defaults to `"causal"`):
+        `"causal"` for ordinary autoregressive decoding, `"block_diffusion"` for the packed
+        `[P | R_clean | R_m1 | R_m2]` training layout whose noisy streams attend bidirectionally inside a block.
 
     ```python
     >>> from transformers import Lfm3Model, Lfm3Config
