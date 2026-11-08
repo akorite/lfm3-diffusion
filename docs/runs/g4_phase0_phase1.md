@@ -689,6 +689,34 @@ Note on the transfer path: the Colab contents API rejects uploads above roughly
 checkpoint needs the weights split into ~50 chunks. The base-model run above
 needs no transfer, which is why it went first.
 
+
+### On-policy head: the last proposer attempt, same ceiling
+
+`collect_draft_data.py` records the model's *own* greedy rollouts (120 prompts
+x 24 tokens) with the hidden state at each step and the next 4 tokens it went on
+to choose - the decode-distribution targets the teacher-forced run lacked.
+`train_draft_online.py` then trains the head on those cached pairs.
+
+| configuration | parity | TPF |
+|---|---|---|
+| base, mask-draft | 1.000 | 1.07 |
+| base, head trained teacher-forced (4k steps) | 1.000 | 0.91 |
+| base, head trained on-policy rollouts (4k steps) | 1.000 | **1.04-1.09** |
+
+Training accuracy reached 1.000 on the recorded pairs (loss 0.025) with only
+~2,900 unique pairs, so that report measures memorisation; the eval above is
+generalisation to four unseen prompts, and it lands where the mask-draft already
+was.
+
+Four proposers now sit between 0.91 and 1.09: mask-draft, two teacher-forced
+heads, and an on-policy head. None approaches the 2.29 the same machinery
+reaches with an oracle draft. The bottleneck is the model's ability to predict
+its own two-to-four-steps-ahead continuation from one hidden state - which is
+what EAGLE's full-feature, tree-verified, much-larger training pipeline exists
+to learn. At 1.7B with a few thousand training pairs, ~1.0 is the honest ceiling
+for a learned proposer here.
+
+## Post-training deliverables
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
