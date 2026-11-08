@@ -140,6 +140,35 @@ def main(argv=None) -> int:
     t0 = time.perf_counter()
 
     pending: list[tuple[list[int], list[int]]] = []
+    pending_prompts: list[list[int]] = []
+
+    def flush_prompts():
+        """Batched greedy rollout, then hand the pairs to the forcing pass."""
+        nonlocal pending_prompts
+        if not pending_prompts:
+            return
+        pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+        eos = tokenizer.eos_token_id or 124_900
+        max_p = max(len(p) for p in pending_prompts)
+        n = len(pending_prompts)
+        ids = torch.full((n, max_p), pad_id, dtype=torch.long, device=device)
+        attn = torch.zeros((n, max_p), dtype=torch.long, device=device)
+        for i, p in enumerate(pending_prompts):
+            ids[i, max_p - len(p):] = torch.tensor(p, device=device)
+            attn[i, max_p - len(p):] = 1
+        with torch.no_grad():
+            out_ids = model.generate(input_ids=ids, attention_mask=attn,
+                                     max_new_tokens=args.max_new_tokens,
+                                     do_sample=False, eos_token_id=eos,
+                                     pad_token_id=pad_id)
+        for i, p in enumerate(pending_prompts):
+            new = out_ids[i, max_p:].tolist()
+            if eos in new:
+                new = new[: new.index(eos) + 1]
+            if len(new) >= 2 and len(p) + len(new) <= args.seq_len:
+                pending.append((p, new))
+        pending_prompts = []
+        flush_batch()
 
     def flush_batch():
         """One teacher forward for the whole pending batch, then the cached
@@ -196,13 +225,12 @@ def main(argv=None) -> int:
                 continue
             prompt_ids = enc[0]
             if args.generate:
-                response_ids = teacher_rollout(
-                    model, prompt_ids, args.max_new_tokens,
-                    tokenizer.eos_token_id or 124_900)
-                if len(response_ids) < 2:
-                    continue
-                if len(prompt_ids) + len(response_ids) > args.seq_len:
-                    continue
+                pending_prompts.append(prompt_ids)
+                if len(pending_prompts) >= args.batch_size:
+                    flush_prompts()
+                if tokens >= args.max_tokens:
+                    break
+                continue
             else:
                 if not str(reference).strip() or str(reference).strip() == "N/A":
                     continue  # prompt-only row and no rollout requested
@@ -219,7 +247,8 @@ def main(argv=None) -> int:
                     "tokens": tokens, "examples": i + 1, "rate_tok_s": rate,
                     "bytes_per_token": BYTES_PER_TOKEN,
                 }, indent=1))
-    flush_batch()
+        flush_prompts()
+        flush_batch()
     (out / "meta.json").write_text(json.dumps({
         "tokens": tokens,
         "shards": shard_idx,
