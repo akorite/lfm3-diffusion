@@ -21,9 +21,9 @@ block_warmup_tokens: 8_000_000
 block_stages: [4, 8, 16, 32]
 block_size: 32
 
-total_tokens: 16_000_000
+total_tokens: 40_000_000   # must exceed the seed checkpoint's 25M tokens_seen, else the loop exits at once
 t_high: 1.0          # all-masked rows are the draft's first-step conditioning
-max_steps: 2000
+max_steps: 3700        # the seed checkpoint is step 2,700: 1,000 steps past it
 warmup_steps: 600
 
 phase1_boundary_tokens: 60_000_000   # physical tokens (~2x corpus at P=R)

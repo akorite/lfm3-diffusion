@@ -459,6 +459,14 @@ which is exactly what the draft's first step feeds. `configs/g4_t1.yaml` runs a
 short polish leg with `t_high: 1.0` on top of the delivered checkpoint to test
 that directly.
 
+### Polish-leg launch notes (what went wrong first)
+
+Two silent no-ops worth recording, both caught before any compute was spent:
+`--max-steps 2000` sits below the seed checkpoint's step 2,700, and
+`total_tokens: 16M` sits below its `tokens_seen` of 25M — either one makes the
+loop exit immediately with `done: 25004750 tokens, 2704 steps`. The leg runs
+with `max_steps: 3700` and `total_tokens: 40M`.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
