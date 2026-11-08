@@ -145,6 +145,28 @@ wasted it was fixed and committed:
 | `--max-steps` break unreachable because `tokens_seen` counts physical lanes | break on steps; token count is a guard only |
 | Eval loaded weights with `strict=False` and never scored the checkpoint | records how many keys loaded |
 
+## Early parity probe (checkpoint at 25M physical tokens, ~step 2,700)
+
+Two prompts x 16 tokens, block 8 / small 4, measured against AR greedy with no
+forced tokens:
+
+| config | parity | TPF |
+|---|---|---|
+| `ar_trust` (isd_width 4) | **1.000** | 1.23 |
+| `spd`, hard_commit 0.90 | 0.062 | 1.60 |
+| `spd`, hard_commit 0.99 | 0.062 | 1.45 |
+
+Two things this settles early:
+
+- **The >95% bar is met today on the verified path.** AR-Trust is exact by
+  construction, and the measurement agrees (1.000 on both prompts) — it does
+  not depend on how converged the student is.
+- **SPD is not usable yet.** 6% parity at 1.5 TPF is worse than plain AR on
+  both axes. Raising `hard_commit` changed nothing, because at block 8 the
+  two-step top-1 rule and the block-end bonus fire before the threshold does.
+  SPD needs the converged checkpoint and a block-size sweep before it is worth
+  offering as the fast path.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
