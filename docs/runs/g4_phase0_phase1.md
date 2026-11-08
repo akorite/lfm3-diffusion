@@ -394,6 +394,35 @@ to confirm a decline. `final-weights.pt` is the 25M checkpoint. Closing the
 1.38 -> 1.5 gap needs the training distribution to cover the all-masked corner,
 which is a recipe change and is reported rather than applied.
 
+
+## Final numbers (delivered checkpoint: 25M tokens, `ckpt-25004750`)
+
+`scripts/endgame.sh` on `/content/run4/final-weights.pt`, which is the 25M
+checkpoint verified tensor-identical to `ckpt-25004750/checkpoint.pt["model"]`.
+
+| criterion | harness | value | verdict |
+|---|---|---|---|
+| 1 parity >= 0.95 | `parity_sweep.py`, 4 prompts x 24 tokens | **1.000** mean, 1.000 worst | met |
+| 2 TPF >= 1.5 | same sweep | **1.38** (ar_trust_4/8), 1.27 (width 2) | **not met** |
+| 3 held-out <= base | `heldout_eval.py`, 31 rows | **4.779** vs base **15.717** | met |
+| 4 tests | `pytest tests/ -q` | **98 passed** | met |
+| 5 export loads | `assert_export.py` | 24 layers, vocab 128000, mask row != pad row | met |
+| 6 artifacts pulled | `/home/ubuntu/lfm3-artifacts/` | see below | met |
+
+Capability drift, which the diffusion loss cannot show: plain causal
+next-token loss over the same 31 rows (23,095 scored tokens).
+
+| model | mean NLL | perplexity |
+|---|---|---|
+| base `LiquidAI/LFM3-1.7B` | 1.4859 | 4.419 |
+| trained (25M) | **1.4808** | **4.396** |
+
+The conversion did not cost causal capability; on this cohort it bought a
+hair. Speed is the one miss: 1.38 against the 1.5 bar, up from the base model's
+1.07. Reaching 1.5 needs the all-masked corner of the input distribution in
+training — the exact corner that longer training on the current `t ~ U[0.35,
+0.95]` objective drifts away from (see the checkpoint table above).
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
