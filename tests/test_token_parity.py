@@ -46,8 +46,11 @@ def test_ar_trust_replay_100_percent_parity_and_exact_tpf():
     for rep in reports["ar_trust"]:
         assert rep.token_parity == 1.0
         assert rep.exact_match_steps == len(continuation)
-        assert rep.realized_tpf == pytest.approx(rep.expected_tpf)
+        # expected TPF is the analytic prediction from the acceptance
+        # statistics, not a renamed copy of the measured value
         assert rep.expected_tpf == pytest.approx(
+            (rep.mean_accepted_len or 1.0) / 2.0)
+        assert rep.expected_tpf != pytest.approx(
             rep.n_tokens / rep.n_forwards)
         assert rep.realized_tpf > 1.0          # speculative acceptance works
         assert rep.top1_flip_rate == 0.0

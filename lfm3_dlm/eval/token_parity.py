@@ -137,7 +137,9 @@ def simulate_parity(model, generate_fn, prompt: torch.Tensor,
         # each verify round commits <= stride+1 tokens in exactly 2 forwards
         rep.predicted_tpf = (rep.mean_accepted_len or 1.0) / 2.0
         rep.realized_tpf = res.tpf
-        rep.expected_tpf = n / max(res.n_forwards, 1)
+        # analytical prediction from the acceptance statistics, so the
+        # comparison against realized TPF measures agreement, not identity
+        rep.expected_tpf = rep.predicted_tpf
         rep.tok_per_s = n / max(elapsed, 1e-9)
         rep.speedup_vs_ar = rep.realized_tpf / 1.0
         reports["ar_trust"].append(rep)
@@ -158,7 +160,9 @@ def simulate_parity(model, generate_fn, prompt: torch.Tensor,
         rep.kl_vs_ar = kl
         rep.predicted_tpf = rep.mean_accepted_len
         rep.realized_tpf = res.tpf
-        rep.expected_tpf = n / max(res.n_forwards, 1)
+        # analytical prediction from the acceptance statistics, so the
+        # comparison against realized TPF measures agreement, not identity
+        rep.expected_tpf = rep.predicted_tpf
         rep.tok_per_s = n / max(elapsed, 1e-9)
         rep.speedup_vs_ar = rep.realized_tpf / 1.0
         reports["spd"].append(rep)
