@@ -1,0 +1,12 @@
+# Core (CPU verification + GPU runbook; G4 ships torch 2.14.1+cu130)
+torch>=2.14
+transformers>=5.20.2,<=5.21.0
+tokenizers>=0.22
+safetensors>=0.5
+datasets
+numpy
+pytest
+
+# GPU-only extras (installed in the G4 session, not required for CPU tests):
+#   cut-cross-entropy @ git+https://github.com/apple/ml-cross-entropy  (train/loss_cad.py has a PyTorch fallback)
+#   torchao>=0.18.0                                                    (fp8_mlp.py falls back to BF16 on CPU)
