@@ -84,7 +84,9 @@ python scripts/train_g4.py --cache /content/cache --dataset divelab/opdlm_train_
 ```
 
 - Measured throughput: 5.4k corpus tok/s (gate 22k — not met; recorded)
-- Steps / tokens: 12,200 steps x 8,192 corpus tokens (OPUT disabled for this run)
+- Steps / tokens: 12,200 steps, ~9.0k physical (~4.5k corpus) tokens per step
+  (OPUT disabled for this run)
+- Live throughput: ~7.2k physical tokens/s, so ~5.5 h for the schedule
 - Final loss: _pending_
 
 ## Export and eval
