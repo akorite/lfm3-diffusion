@@ -220,7 +220,7 @@ The real-model SPD number moves with training (0.062 → 0.19–0.25), so the
 "structurally zero" reading is too strong; what holds is that SPD stays far
 from 0.95 while AR-Trust sits at 1.000.
 
-**Draft quality, not the verifier (measured, ckpt-4003234).** Same prompt, same
+**Draft quality, not the verifier (measured, ckpt-4003234 = the 4M-token checkpoint).** Same prompt, same
 16 tokens, same verifier — only the draft source changes:
 
 | draft source | parity | TPF | forwards for 16 tokens |
