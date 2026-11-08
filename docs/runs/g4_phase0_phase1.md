@@ -87,7 +87,11 @@ python scripts/train_g4.py --cache /content/cache --dataset divelab/opdlm_train_
 - Steps / tokens: 12,200 steps, ~9.0k physical (~4.5k corpus) tokens per step
   (OPUT disabled for this run)
 - Live throughput: ~7.2k physical tokens/s, so ~5.5 h for the schedule
-- Final loss: _pending_
+- Loss trajectory (mean per decile of steps, first 1,050 steps):
+  70.1 → 43.8 → 39.1 → 36.1 → 33.5 → 32.1 → 32.6 → 30.4 → 30.5 → 29.6.
+  Per-step variance is large (4 documents per step, fresh mask draw each step,
+  and block size annealing 4→32 during warmup), so the decile means are the
+  signal, not any single step.
 
 ## Export and eval
 
