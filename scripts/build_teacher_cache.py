@@ -49,10 +49,12 @@ def _encode(tokenizer, prompt, response, seq_len):
         prompt_ids = tokenizer.encode(text + "\n", add_special_tokens=True)
     response_ids = tokenizer.encode(response, add_special_tokens=False)
     response_ids = response_ids + [tokenizer.eos_token_id or 124_900]
-    if len(prompt_ids) + len(response_ids) > seq_len:
-        keep = max(1, seq_len - len(prompt_ids))
-        if keep < len(response_ids):  # drop the turn rather than truncate mid-answer
-            return None
+    if len(response_ids) >= seq_len:
+        return None  # the answer alone does not fit
+    room = seq_len - len(response_ids)
+    if len(prompt_ids) > room:
+        # keep the tail of a long conversation: the last user turn survives
+        prompt_ids = prompt_ids[-room:]
     return prompt_ids, response_ids
 
 
@@ -144,6 +146,7 @@ def main(argv=None) -> int:
     t0 = time.perf_counter()
 
     pending: list[tuple[list[int], list[int]]] = []
+    pool: list[tuple[list[int], list[int]]] = []
     pending_prompts: list[list[int]] = []
 
     def flush_prompts():
@@ -246,9 +249,15 @@ def main(argv=None) -> int:
                 if not str(reference).strip() or str(reference).strip() == "N/A":
                     continue  # prompt-only row and no rollout requested
                 response_ids = enc[1]
-            pending.append((prompt_ids, response_ids))
-            if len(pending) >= args.batch_size:
-                flush_batch()
+            pool.append((prompt_ids, response_ids))
+            if len(pool) >= args.batch_size * 4:
+                # length bucketing: batching similar lengths removes the
+                # padding waste that dominates a chat corpus
+                pool.sort(key=lambda pr: len(pr[0]) + len(pr[1]))
+                for start in range(0, len(pool), args.batch_size):
+                    pending.extend(pool[start:start + args.batch_size])
+                    flush_batch()
+                pool.clear()
             if tokens >= args.max_tokens:
                 break
             if tokens and tokens % 1_000_000 < args.batch_size * 64:
@@ -258,6 +267,13 @@ def main(argv=None) -> int:
                     "tokens": tokens, "examples": i + 1, "rate_tok_s": rate,
                     "bytes_per_token": BYTES_PER_TOKEN,
                 }, indent=1))
+        if pool:
+            pool.sort(key=lambda pr: len(pr[0]) + len(pr[1]))
+            author = {'flush': pool}
+            for start in range(0, len(pool), args.batch_size):
+                pending.extend(pool[start:start + args.batch_size])
+                flush_batch()
+            pool.clear()
         flush_prompts()
         flush_batch()
         write_shard()
