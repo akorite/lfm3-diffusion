@@ -41,14 +41,14 @@ python scripts/train_g4.py --cache /content/cache --dataset <hf-id> \
 
 | Gate | Threshold | Measured 2026-11-08 on G4 |
 |---|---|---|
-| Corpus throughput | `>= 22k` tok/s (BF16 `>= 11k` on A100) | **~4.6k** — fails |
-| Peak VRAM | `< 65 GB` without activation checkpointing | **90 GB** at 4x4096 — fails |
+| Corpus throughput | `>= 22k` tok/s (BF16 `>= 11k` on A100) | **5.4k** at mb=1 with FlexAttention — fails |
+| Peak VRAM | `< 65 GB` without activation checkpointing | **29.1 GB** at mb=1 — passes; 90 GB at mb=4 |
 | Finite loss over the smoke | no NaN/Inf | passes |
 
-Both failures point at the same cause: every layer materializes a dense
-`[B, 1, S, S]` additive mask per step. `lfm3_dlm/masks.py::dlm_mask_mod`
-exists for the FlexAttention path and is not wired up yet; that plus
-activation checkpointing is the work required before a full run.
+FlexAttention is wired and buys ~10%, not the 4x the mask cost suggested; the
+step sits at ~19% of BF16 peak, so the remaining gap is utilisation, not mask
+materialisation. Full numbers and the checkpointing incompatibility are in
+`docs/runs/g4_gate.md`.
 
 FP8 frozen MLPs measured **no speedup** (9.1k vs 9.3k tok/s) and more VRAM,
 because the input-gradient copy keeps the bf16 weights resident; the FP8 path

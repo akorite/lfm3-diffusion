@@ -53,7 +53,11 @@ class DLMTrainer:
         if mode not in ("causal", "block_diffusion"):
             raise ValueError(f"unknown attention_mode {mode!r}")
         model.config.attention_mode = mode
-        model.config.use_flex_attention = bool(config.get("use_flex_attention", False))
+        use_flex = bool(config.get("use_flex_attention", False))
+        model.config.use_flex_attention = use_flex
+        if use_flex:
+            # the mask builder emits BlockMasks, which only the flex interface reads
+            model.config._attn_implementation = "flex_attention"
         self.rng = torch.Generator(device=device)
         self.rng.manual_seed(config.get("seed", 0))
         self.collator = SharedPrefixCollator(
