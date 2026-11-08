@@ -95,3 +95,23 @@ Expected shape: `ar_trust` at 1.000 parity with TPF ~2–3; `spd` at high TPF wi
 parity that rises as `hard_commit` → 1.0 (a threshold of 1.0 degenerates to
 one-token-at-a-time commits, i.e. AR). The sweep records all rows, so the
 "≥95% parity at the best TPF" point is read off the table rather than assumed.
+
+
+## Pre-flight review fixes (before the first training step)
+
+An unattended 10-hour run was reviewed first; every finding that would have
+wasted it was fixed and committed:
+
+| Finding | Fix |
+|---|---|
+| Cache accepted `P+R <= seq_len` but the collator needs `P+(1+K)R`, so long rows raise on the first draw | builder enforces the packing bound; the reader also skips rows that do not fit, so an older cache stays usable |
+| Driver ignored stage return codes and always wrote a success marker | every stage is checked; failures abort with an error record |
+| `rc` unbound when phase 0 was skipped on resume | initialised |
+| LR never annealed (config `max_steps` ≠ CLI `max_steps`) | the CLI value drives the cosine |
+| Resume picked the lexicographically last checkpoint | numeric sort |
+| Export re-seeded the mask row from the pad row, discarding the only embedding row training moves | merge no longer calls it |
+| OPUT built an unchunked `[positions, 125033]` fp32 block per example | chunked, shared with `sliced_lse` |
+| Checkpoints ~6.5 GB each, nothing pruned | keep the two newest |
+| Parity gate's rc discarded and it scored AR-Trust instead of the documented SPD criterion | both fixed |
+| `--max-steps` break unreachable because `tokens_seen` counts physical lanes | break on steps; token count is a guard only |
+| Eval loaded weights with `strict=False` and never scored the checkpoint | records how many keys loaded |
