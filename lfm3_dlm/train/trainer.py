@@ -53,6 +53,7 @@ class DLMTrainer:
         if mode not in ("causal", "block_diffusion"):
             raise ValueError(f"unknown attention_mode {mode!r}")
         model.config.attention_mode = mode
+        model.config.use_flex_attention = bool(config.get("use_flex_attention", False))
         self.rng = torch.Generator(device=device)
         self.rng.manual_seed(config.get("seed", 0))
         self.collator = SharedPrefixCollator(
@@ -113,6 +114,7 @@ class DLMTrainer:
             examples = self._oput_corrupt(examples)
 
         rows = [r.to(self.device) for r in self.collator(examples)]
+        checkpointed = bool(cfg.get("activation_checkpointing", False))
         total_loss = 0.0
         self.optimizer.zero_grad(set_to_none=True)
         # one forward per microbatch of packed rows: the rows share a fixed
@@ -120,12 +122,8 @@ class DLMTrainer:
         micro = max(1, int(cfg.get("microbatch", 1)))
         for start in range(0, len(rows), micro):
             chunk = rows[start:start + micro]
-            out = self.model.model(
-                input_ids=torch.stack([r.input_ids for r in chunk]),
-                position_ids=torch.stack([r.position_ids for r in chunk]),
-                doc_ids=torch.stack([r.doc_id for r in chunk]),
-                stream_ids=torch.stack([r.stream_id for r in chunk]),
-            )
+            fwd = self._make_forward(chunk, checkpointed)
+            out = fwd()
             chunk_losses = []
             for i, row in enumerate(chunk):
                 hidden = out.last_hidden_state[i]
@@ -144,6 +142,17 @@ class DLMTrainer:
         self.optimizer.step()
         self.step += 1
         return total_loss
+
+    # ---------------------------------------------------------------
+    def _make_forward(self, chunk, checkpointed: bool):
+        """Packed forward; `checkpointed` asks the model to recompute layer
+        activations instead of retaining them."""
+        return lambda: self.model.model(
+            input_ids=torch.stack([r.input_ids for r in chunk]),
+            position_ids=torch.stack([r.position_ids for r in chunk]),
+            doc_ids=torch.stack([r.doc_id for r in chunk]),
+            stream_ids=torch.stack([r.stream_id for r in chunk]),
+            checkpoint_layers=checkpointed)
 
     # ---------------------------------------------------------------
     def _oput_due(self) -> bool:

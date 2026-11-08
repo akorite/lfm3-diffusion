@@ -38,6 +38,9 @@ class Lfm3Config(PreTrainedConfig):
         Sliding-window size of the `sliding_attention` layers.
     use_sandwich_norm (`bool`, *optional*, defaults to `True`):
         Whether to apply an RMSNorm to the operator and feed-forward outputs before they enter the residual stream.
+    use_flex_attention (`bool`, *optional*, defaults to `False`):
+        Build block-diffusion masks as FlexAttention `BlockMask`s instead of dense `[B, 1, S, S]`
+        tensors. Forward-parity with the dense builder is tested; CPU autograd is unsupported.
     attention_mode (`str`, *optional*, defaults to `"causal"`):
         `"causal"` for ordinary autoregressive decoding, `"block_diffusion"` for the packed
         `[P | R_clean | R_m1 | R_m2]` training layout whose noisy streams attend bidirectionally inside a block.
@@ -82,6 +85,7 @@ class Lfm3Config(PreTrainedConfig):
     head_dim: int | None = None
     sliding_window: int | None = 256
     use_sandwich_norm: bool = True
+    use_flex_attention: bool = False
     attention_mode: str = "causal"
 
     def __post_init__(self, **kwargs):

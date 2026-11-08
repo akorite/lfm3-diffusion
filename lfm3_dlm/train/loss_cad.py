@@ -24,6 +24,8 @@ from ..modeling_lfm3 import OUTPUT_VOCAB_BOUNDARY
 
 TAU_FLOOR = 1e-8
 AR_BALANCE_EPS = 1e-8
+# rows per classifier GEMM chunk: bounds the transient [rows, V] fp32 block
+LSE_CHUNK = 512
 
 
 def sliced_lse(hidden: torch.Tensor, classifier: torch.Tensor) -> torch.Tensor:
@@ -48,8 +50,22 @@ def sliced_lse(hidden: torch.Tensor, classifier: torch.Tensor) -> torch.Tensor:
         )
         return lse.float()
     except ImportError:
-        z = hidden.float() @ classifier.float().t()
-        return torch.logsumexp(z, dim=-1)
+        return chunked_lse(hidden, classifier)
+
+
+def chunked_lse(hidden: torch.Tensor, classifier: torch.Tensor,
+                chunk: int = LSE_CHUNK) -> torch.Tensor:
+    """Log-sum-exp over the sliced classifier in row chunks.
+
+    Allocating `[positions, 125033]` as one fp32 block costs 3-6 GB on a packed
+    row; chunking keeps the transient bounded and the result identical.
+    """
+    h = hidden.float()
+    w = classifier.float().t()
+    out = []
+    for start in range(0, h.shape[0], chunk):
+        out.append(torch.logsumexp(h[start:start + chunk] @ w, dim=-1))
+    return torch.cat(out) if out else h.new_zeros(0)
 
 
 def gather_logits(

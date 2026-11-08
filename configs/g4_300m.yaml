@@ -5,6 +5,8 @@ seed: 0
 s_phys: 4096
 microbatch: 4        # packed rows per forward
 attention_mode: block_diffusion
+use_flex_attention: true
+activation_checkpointing: true
 freeze_mlps: true
 unfreeze_mlp_lr: 1.0e-6   # KTD2 fallback differential if the 50M polish fires
 

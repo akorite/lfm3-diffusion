@@ -147,6 +147,39 @@ def additive_mask(bool_mask: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     return torch.zeros_like(bool_mask, dtype=dtype).masked_fill(~bool_mask, torch.finfo(dtype).min)
 
 
+def create_dlm_block_masks(
+    config,
+    position_ids: torch.Tensor,
+    doc_ids: torch.Tensor | None = None,
+    stream_ids: torch.Tensor | None = None,
+    block_size: int = DEFAULT_BLOCK_SIZE,
+    device=None,
+) -> dict:
+    """Per-layer-type `BlockMask`s for FlexAttention (no dense S x S tensor).
+
+    Same rule as `build_dlm_bool_mask`, expressed as a `mask_mod` so the
+    kernel skips blocked quadrants instead of materializing them.
+    """
+    from torch.nn.attention.flex_attention import create_block_mask
+
+    batch, seq = position_ids.shape
+    mapping: dict = {}
+    for layer_type in ("full_attention", "sliding_attention"):
+        if layer_type not in config.layer_types:
+            continue
+        mod = dlm_mask_mod(
+            position_ids, doc_ids, stream_ids,
+            block_size=block_size, mode=config.attention_mode,
+            sliding_window=config.sliding_window if layer_type == "sliding_attention" else None,
+        )
+        mapping[layer_type] = create_block_mask(
+            mod, batch, None, seq, seq, device=device or position_ids.device,
+        )
+    if "conv" in config.layer_types:
+        mapping["conv"] = None
+    return mapping
+
+
 def create_dlm_masks_by_layer_type(
     config,
     inputs_embeds: torch.Tensor | None = None,
@@ -169,6 +202,16 @@ def create_dlm_masks_by_layer_type(
         dtype = inputs_embeds.dtype if inputs_embeds is not None else torch.get_default_dtype()
 
     padding = attention_mask if isinstance(attention_mask, torch.Tensor) and attention_mask.ndim == 2 else None
+    if getattr(config, "use_flex_attention", False):
+        try:
+            mapping = create_dlm_block_masks(
+                config, position_ids, doc_ids, stream_ids,
+                block_size=block_size, device=position_ids.device,
+            )
+            mapping["conv"] = padding
+            return mapping
+        except Exception:  # no FlexAttention in this build: dense is the reference
+            pass
     mapping = {}
     layer_types = config.layer_types
     if "full_attention" in layer_types:

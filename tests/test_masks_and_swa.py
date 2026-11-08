@@ -248,3 +248,30 @@ def test_causal_mode_matches_pre_edit_upstream_bitwise(tmp_path):
                 input_ids=input_ids, position_ids=position_ids, use_cache=False
             ).logits
             assert torch.equal(new, old), "causal-mode logits diverged from the vendored baseline"
+
+
+def test_flex_block_masks_match_dense_forward():
+    """The FlexAttention path must reproduce the dense builder's forward
+    exactly: it is the same rule expressed without materializing S x S."""
+    torch.manual_seed(0)
+    cfg = Lfm3Config(vocab_size=512, hidden_size=32, intermediate_size=64,
+                     num_hidden_layers=2, num_attention_heads=2,
+                     num_key_value_heads=1, max_position_embeddings=128,
+                     layer_types=["full_attention", "sliding_attention"],
+                     sliding_window=32, attention_mode="block_diffusion",
+                     pad_token_id=0, bos_token_id=1, eos_token_id=2)
+    model = Lfm3ForCausalLM(cfg).eval()
+    S = 64
+    ids = torch.randint(10, 512, (1, S))
+    pos = torch.arange(S).unsqueeze(0)
+    doc = torch.zeros(1, S, dtype=torch.long)
+    stream = torch.zeros(1, S, dtype=torch.long)
+    stream[0, S // 2:] = 1
+    with torch.no_grad():
+        dense = model.model(input_ids=ids, position_ids=pos, doc_ids=doc,
+                            stream_ids=stream).last_hidden_state
+        model.config.use_flex_attention = True
+        model.config._attn_implementation = "flex_attention"
+        flex = model.model(input_ids=ids, position_ids=pos, doc_ids=doc,
+                           stream_ids=stream).last_hidden_state
+    assert torch.allclose(flex, dense, atol=1e-5)

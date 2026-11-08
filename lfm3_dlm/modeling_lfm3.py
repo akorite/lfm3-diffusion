@@ -644,6 +644,7 @@ class Lfm3Model(Lfm3PreTrainedModel):
         if self.config.attention_mode == "block_diffusion":
             doc_ids = kwargs.pop("doc_ids", None)
             stream_ids = kwargs.pop("stream_ids", None)
+        checkpoint_layers = kwargs.pop("checkpoint_layers", False)
         # `seq_idx` is a shared kwarg (`DataCollatorWithFlattening(return_seq_idx=True)`, read by Lfm2); LFM3 derives
         # the documents from the restarting `position_ids` that come with it
         if kwargs.pop("seq_idx", None) is not None and position_ids is None:
@@ -793,8 +794,7 @@ class Lfm3Model(Lfm3PreTrainedModel):
 
         for i, decoder_layer in enumerate(self.layers[: self.config.num_hidden_layers]):
             layer_type = self.config.layer_types[i]
-            hidden_states = decoder_layer(
-                hidden_states,
+            layer_kwargs = dict(
                 attention_mask=causal_mask_mapping[layer_type],
                 position_embeddings=position_embeddings.get(layer_type),
                 position_ids=position_ids,
@@ -804,6 +804,14 @@ class Lfm3Model(Lfm3PreTrainedModel):
                 halo_valid=halo_valid,
                 **kwargs,
             )
+            if checkpoint_layers and hidden_states.requires_grad:
+                import torch.utils.checkpoint as _cp
+
+                hidden_states = _cp.checkpoint(
+                    decoder_layer, hidden_states, use_reentrant=False, **layer_kwargs
+                )
+            else:
+                hidden_states = decoder_layer(hidden_states, **layer_kwargs)
 
         hidden_states = self.embedding_norm(hidden_states)
 
