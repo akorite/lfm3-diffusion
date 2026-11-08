@@ -65,8 +65,10 @@ python scripts/build_teacher_cache.py --dataset divelab/opdlm_train_data \
   --out /content/cache --max-tokens <target>
 ```
 
-- Measured rate: _pending_
-- Tokens cached: _pending_
+- Measured rate: ~4.7k tokens/s in the live run (17k in the short benchmark;
+  the live mix includes shorter rows and the head cast per chunk)
+- Tokens cached: 20M target from `nvidia/Llama-Nemotron-Post-Training-Dataset`
+  `SFT/chat`, local JSONL, rows filtered to `P+(1+K)R <= 4096`
 
 ## Parity gate
 
@@ -82,7 +84,7 @@ python scripts/train_g4.py --cache /content/cache --dataset divelab/opdlm_train_
 ```
 
 - Measured throughput: 5.4k corpus tok/s (gate 22k — not met; recorded)
-- Steps / tokens: _pending_
+- Steps / tokens: 12,200 steps x 8,192 corpus tokens (OPUT disabled for this run)
 - Final loss: _pending_
 
 ## Export and eval
