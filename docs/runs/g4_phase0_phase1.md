@@ -220,6 +220,19 @@ The real-model SPD number moves with training (0.062 → 0.19–0.25), so the
 "structurally zero" reading is too strong; what holds is that SPD stays far
 from 0.95 while AR-Trust sits at 1.000.
 
+**Draft quality, not the verifier (measured, ckpt-4003234).** Same prompt, same
+16 tokens, same verifier — only the draft source changes:
+
+| draft source | parity | TPF | forwards for 16 tokens |
+|---|---|---|---|
+| model's own mask-draft | 1.000 | **1.07** | 15 |
+| oracle draft (AR continuation) | 1.000 | **2.29** | 7 |
+
+So the verify/commit machinery reaches 2.29 tokens per forward — above the 1.5
+bar — and the model's own proposals are simply not accepted yet. This is a
+draft-quality gap, not a draft-path bug: the fix is a model that predicts
+masked-block tokens better, which is exactly what the running training buys.
+
 **The speed criterion is the one at risk.** On ckpt-4003234, ar_trust TPF is
 **1.07 for both width 4 and width 8** — width changes nothing, which means
 essentially zero drafts are accepted beyond the first token. AR-Trust is
