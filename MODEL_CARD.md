@@ -90,6 +90,17 @@ numbers are recorded in `docs/runs/g4_phase0_phase1.md`:
 - decode: `AR-Trust` verification is exact by construction; `SPD` parity is
   measured, not assumed (`scripts/parity_sweep.py`)
 
-The token counts and losses below the recipe in this card describe the
-*planned* 300M-token run; the shipped checkpoint is sized to the available
-compute and the run record states the difference.
+This checkpoint is a **budget-sized** conversion, not the plan's full run:
+
+| | plan | shipped |
+|---|---|---|
+| teacher cache | 150M tokens | 20M tokens |
+| student corpus tokens | 300M | ~55M (12,200 steps) |
+| training data | mixed KTD3 blend | `Siemens/Llama-Nemotron-Post-Training` `SFT/chat`, rows that fit one packed row |
+| teacher signal | Top-16 cache | Top-16 cache (68 B/token) |
+| frozen weights | MLPs + non-mask embedding rows | same |
+| compute | ~46–55 CU | ~35 CU |
+
+Token parity is measured, not claimed: see `docs/runs/g4_phase0_phase1.md` and
+`scripts/parity_sweep.py`. `ar_trust` decode is exact by construction; `spd`
+parity depends on `hard_commit`.
