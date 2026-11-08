@@ -207,11 +207,18 @@ def main(argv=None) -> int:
             shard_rows += len(r)
             tokens += len(r)
             if shard_rows >= args.shard_tokens:
-                path = out / f"shard-{shard_idx:05d}.bin"
-                path.write_bytes(torch.cat(shard_buf).numpy().tobytes())
-                shard_buf, shard_rows = [], 0
-                shard_idx += 1
+                write_shard()
         pending.clear()
+
+    def write_shard():
+        """Flush the buffered rows, including the tail a run finishes with."""
+        nonlocal shard_buf, shard_rows, shard_idx
+        if not shard_rows:
+            return
+        path = out / f"shard-{shard_idx:05d}.bin"
+        path.write_bytes(torch.cat(shard_buf).numpy().tobytes())
+        shard_buf, shard_rows = [], 0
+        shard_idx += 1
 
     with index_path.open("a") as index:
         for i, example in enumerate(ds):
@@ -249,6 +256,7 @@ def main(argv=None) -> int:
                 }, indent=1))
         flush_prompts()
         flush_batch()
+        write_shard()
     (out / "meta.json").write_text(json.dumps({
         "tokens": tokens,
         "shards": shard_idx,
