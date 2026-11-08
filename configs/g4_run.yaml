@@ -16,9 +16,7 @@ w_ar: 1.0
 ce_weight: 0.2
 
 warmup_tokens: 8_000_000
-t_high: 1.0          # cover the all-masked corner the first draft step feeds
 block_warmup_tokens: 8_000_000
-t_high: 1.0          # cover the all-masked corner the first draft step feeds
 block_stages: [4, 8, 16, 32]
 block_size: 32
 

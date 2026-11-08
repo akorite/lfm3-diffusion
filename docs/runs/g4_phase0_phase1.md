@@ -423,6 +423,42 @@ hair. Speed is the one miss: 1.38 against the 1.5 bar, up from the base model's
 training — the exact corner that longer training on the current `t ~ U[0.35,
 0.95]` objective drifts away from (see the checkpoint table above).
 
+
+## Real benchmarks against the original model
+
+`lm_eval` 0.4.13, `--limit 400`, bfloat16, `arc_easy` / `piqa` / `hellaswag`.
+Standard error is ~0.025 per cell at this sample size.
+
+| task | base LFM3-1.7B | trained (25M) | delta |
+|---|---|---|---|
+| arc_easy acc | 0.420 | **0.533** | +0.113 |
+| arc_easy acc_norm | 0.388 | **0.468** | +0.080 |
+| piqa acc | 0.590 | **0.675** | +0.085 |
+| piqa acc_norm | 0.615 | **0.695** | +0.080 |
+| hellaswag acc | **0.405** | 0.398 | -0.008 |
+| hellaswag acc_norm | **0.533** | 0.505 | -0.028 |
+
+The conversion does not cost benchmark accuracy: arc_easy and piqa improve by
+~3-4 standard errors, hellaswag moves inside noise. So "as well as the original"
+holds on real tasks, not just on the held-out perplexity proxy.
+
+## Speed: where the levers are, measured
+
+| lever | result |
+|---|---|
+| block size 4/8/16/32 x small block 2/4/8 | TPF identical at 1.27/1.38/1.38 — geometry is irrelevant |
+| isd_width 2 / 4 / 8 | 1.27 / 1.38 / 1.38 — width saturates at 4 |
+| draft acceptance objective (two formulations) | worse, and one broke parity (above) |
+| oracle drafts (machinery ceiling) | 2.29 |
+| longer supervised training (25M -> 50M) | 1.38 -> 1.20 |
+
+Every decode-side knob is flat, and the machinery itself reaches 2.29 with
+perfect drafts. The one untested lever with a mechanistic reason to work is the
+training distribution: `t ~ U[0.35, 0.95]` never shows a fully masked block,
+which is exactly what the draft's first step feeds. `configs/g4_t1.yaml` runs a
+short polish leg with `t_high: 1.0` on top of the delivered checkpoint to test
+that directly.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:

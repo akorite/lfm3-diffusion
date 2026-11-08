@@ -1,0 +1,33 @@
+# Short polish leg: same recipe as g4_run.yaml except the corruption ceiling
+# reaches 1.0, so the all-masked corner the sampler's first draft step feeds is
+# in the training distribution. Measured before/after on parity_sweep TPF.
+
+seed: 0
+s_phys: 4096
+microbatch: 1          # 1 packed row per forward: VRAM 24-29 GB, throughput flat above
+attention_mode: block_diffusion
+use_flex_attention: true
+activation_checkpointing: false   # flex + recompute is broken in torch 2.14
+freeze_mlps: true
+unfreeze_mlp_lr: 1.0e-6
+
+lr_max: 2.0e-5
+lr_min: 2.0e-6
+w_ar: 1.0
+ce_weight: 0.2
+
+warmup_tokens: 8_000_000
+block_warmup_tokens: 8_000_000
+block_stages: [4, 8, 16, 32]
+block_size: 32
+
+total_tokens: 16_000_000
+t_high: 1.0          # all-masked rows are the draft's first-step conditioning
+max_steps: 2000
+warmup_steps: 600
+
+phase1_boundary_tokens: 60_000_000   # physical tokens (~2x corpus at P=R)
+oput_ratio: 0.0        # phase-2 OPUT doubles some steps; off for the budget run
+
+checkpoint_interval_tokens: 4_000_000   # ~450 steps: a chunked run loses <=10 min
+checkpoint_dir: checkpoints/g4_run
