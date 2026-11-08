@@ -57,8 +57,15 @@ class TeacherCache:
         }
 
 
+def _packs(p, r, s_phys, block_size, n_masks=2):
+    """Same bound the collator enforces: P + (1+K)R_rounded must fit one row."""
+    rr = max(block_size, -(-len(r) // block_size) * block_size)
+    return len(p) + (1 + n_masks) * rr <= s_phys
+
+
 def corpus_examples(dataset_id, split, prompt_field, response_field, tokenizer,
-                    seq_len, take, config_name=None, data_files=None):
+                    seq_len, take, config_name=None, data_files=None,
+                    block_size=32):
     """Teacherless examples: the collator supervises them with plain CE."""
     from datasets import load_dataset
 
@@ -82,7 +89,7 @@ def corpus_examples(dataset_id, split, prompt_field, response_field, tokenizer,
             p = tokenizer.encode(text + "\n", add_special_tokens=True)
         r = tokenizer.encode(str(example[response_field]), add_special_tokens=False)
         r = r + [tokenizer.eos_token_id or 124_900]
-        if len(p) + len(r) <= seq_len:
+        if _packs(p, r, seq_len, block_size):
             out.append({"prompt_ids": p, "response_ids": r})
         if len(out) >= take:
             break
@@ -125,7 +132,7 @@ def main(argv=None) -> int:
     corpus = (corpus_examples(args.dataset, args.split, args.prompt_field,
                               args.response_field, tokenizer,
                               cfg.get("s_phys", 4096), 64, args.dataset_config,
-                              args.data_files)
+                              args.data_files, cfg.get("block_size", 32))
               if args.dataset else [])
 
     if args.resume:
