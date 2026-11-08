@@ -61,8 +61,10 @@ def main(argv=None) -> int:
     model = Lfm3ForCausalLM.from_pretrained("LiquidAI/LFM3-1.7B",
                                             dtype=torch.bfloat16)
     if args.weights:
-        model.load_state_dict(torch.load(args.weights, map_location="cpu"),
-                              strict=False)
+        state = torch.load(args.weights, map_location="cpu")
+        if isinstance(state, dict) and "model" in state:
+            state = state["model"]
+        model.load_state_dict(state, strict=False)
     model = model.cuda().eval()
     model.config.attention_mode = "causal"
 

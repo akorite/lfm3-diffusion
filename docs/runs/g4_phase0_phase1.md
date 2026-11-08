@@ -349,6 +349,23 @@ are recorded and discarded, and the pre-RL weights remain the best model.
 The lever that demonstrably moved TPF is supervised scale: 1.07 at 4M tokens to
 1.38 at 25M. That is where the remaining compute goes.
 
+
+## Scaling past the 7,000-step override
+
+`configs/g4_run.yaml` budgets 18,300 steps (150M corpus tokens); the run was
+launched with a `--max-steps 7000` override as a first leg. The RL phases above
+were the wrong lever, so the remaining compute goes to restoring that schedule
+rather than inventing a new one: resume at `--max-steps 18300`, which keeps the
+designed cosine shape instead of bolting a second anneal onto a finished one.
+
+Evidence for this being the lever: ar_trust TPF 1.07 at 4M tokens, 1.38 at 25M,
+against a base-model floor of 1.07. A separate acceptance post-phase was tried
+and reverted (above), so the schedule is the only change.
+
+An unattended driver (`/content/vm_driver.py`) resumes chunks until step 18,300
+and then runs `scripts/endgame.sh` on its own, so the battery fires the moment
+training finishes instead of waiting on a polling loop.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:

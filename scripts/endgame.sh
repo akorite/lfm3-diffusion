@@ -38,5 +38,11 @@ python scripts/spd_sweep.py --weights /content/run4/final-weights.pt \
 # base measurements on the same rows, for the quality comparison
 python scripts/heldout_eval.py --out /content/heldout_base.json --count 40
 
+# capability drift: the diffusion loss says the conversion learned its
+# objective; causal next-token loss says it still answers like LFM3
+python scripts/causal_ppl.py --weights /content/run4/final-weights.pt \
+  --out /content/ppl_trained.json --count 40
+python scripts/causal_ppl.py --out /content/ppl_base.json --count 40
+
 cd /content && tar czf /content/export.tar.gz export 2>/dev/null
 echo done > /content/FINISHED

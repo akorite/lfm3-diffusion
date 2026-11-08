@@ -43,6 +43,23 @@ def prefix_parity(emitted, reference):
     return n / max(len(reference), 1), n
 
 
+def load_trained(model, path):
+    """Load either a plain state dict or a trainer `checkpoint.pt` bundle.
+
+    A silent 0-key load would measure the base model while reporting the
+    checkpoint's name, so the load count is checked.
+    """
+    state = torch.load(path, map_location="cpu")
+    if isinstance(state, dict) and "model" in state:
+        state = state["model"]
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    loaded = len(state) - len(unexpected)
+    if loaded <= 0:
+        raise SystemExit(f"{path}: loaded 0 tensors (missing {len(missing)})")
+    print(f"loaded {loaded}/{len(state)} tensors from {path}", flush=True)
+    return model
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", default="LiquidAI/LFM3-1.7B")
@@ -58,7 +75,7 @@ def main(argv=None) -> int:
     tok = load_tokenizer()
     model = Lfm3ForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16)
     if args.weights:
-        model.load_state_dict(torch.load(args.weights, map_location="cpu"), strict=False)
+        load_trained(model, args.weights)
     model = model.cuda().eval()
     model.config.attention_mode = "causal"
 
