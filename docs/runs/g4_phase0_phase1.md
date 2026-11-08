@@ -52,6 +52,12 @@ account, so the run is sized to finish inside one session (cache ~20 min at the
 measured 17k tok/s, training ~5 h at 5.1k corpus tok/s). Checkpoints are pruned
 to the two newest so the ~6.5 GB bundles cannot fill the disk.
 
+A VM-side supervisor (`supervisor.sh`) watches the step counter: if the trainer
+dies it relaunches with `--resume` (capped at three retries), and when the
+target is reached it runs `finish_run.py` (export -> eval -> parity), tars the
+export, and writes `/content/FINISHED`. The whole endgame therefore completes
+without a live operator.
+
 ## Phase 0 — teacher cache
 
 - Teacher: `LiquidAI/LFM3-1.7B`, FP8 off (measured neutral), rollout mode.
