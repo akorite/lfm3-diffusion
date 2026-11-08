@@ -366,6 +366,34 @@ An unattended driver (`/content/vm_driver.py`) resumes chunks until step 18,300
 and then runs `scripts/endgame.sh` on its own, so the battery fires the moment
 training finishes instead of waiting on a polling loop.
 
+
+## Acceptance peaks at 25M tokens, then declines
+
+Three checkpoints measured with the same harness, same flags, twice each (the
+repeats were bit-identical, so this is not run-to-run noise):
+
+| checkpoint | step | ar_trust parity | ar_trust TPF | held-out loss |
+|---|---|---|---|---|
+| base `LiquidAI/LFM3-1.7B` | — | 1.000 | 1.07 | 15.717 |
+| `ckpt-4003234` (4M tok) | ~1,000 | 1.000 | 1.07 | — |
+| `ckpt-25004750` (25M tok) | 2,700 | 1.000 | **1.38** | **4.779** |
+| `ckpt-50013642` (50M tok) | 5,400 | 1.000 | **1.20** | 4.816 |
+
+So the 25M checkpoint is the best model on both axes, and 25M more tokens of the
+same objective buys nothing: TPF fell 1.38 -> 1.20 and held-out loss rose
+4.779 -> 4.816.
+
+Read: the training objective corrupts `t ~ U[0.35, 0.95]`, so a block that is
+*entirely* masked — what the sampler's first draft step feeds — sits at the edge
+of the training distribution. Training longer sharpens the rest of the
+distribution and moves the model further from that corner, which is exactly the
+plot.
+
+Consequence: the 18,300-step extension was stopped rather than spending ~45 CU
+to confirm a decline. `final-weights.pt` is the 25M checkpoint. Closing the
+1.38 -> 1.5 gap needs the training distribution to cover the all-masked corner,
+which is a recipe change and is reported rather than applied.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
