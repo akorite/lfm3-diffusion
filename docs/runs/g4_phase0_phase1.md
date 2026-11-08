@@ -621,6 +621,24 @@ Ranked course of action:
 3. Do not add supervised steps to the current recipe: 25M -> 50M already
    regressed on both axes.
 
+
+### Anchor dependence, measured earlier
+
+The partial-reveal probe asked the same question at the token level: mask a
+block, reveal k leading tokens, read the argmax at the rest.
+
+| reveal | prompt 1 agreement | prompt 2 agreement |
+|---|---|---|
+| 0 (all masked) | 0.125 | 0.062 |
+| 2 | 0.143 | 0.071 |
+| 4 | **0.417** | 0.083 |
+
+One prompt improves 3.3x with four anchors and restores varied proposals; the
+other barely moves. So an anchor helps but does not reliably rescue the fill -
+the denoiser is weak, not merely unconditioned. That matches Fast-dLLM's
+dependency-disruption account and the DiffuLLaMA scale gap, and it is why the
+parallel path stays unusable here.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
