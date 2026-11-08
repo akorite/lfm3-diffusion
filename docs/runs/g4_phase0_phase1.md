@@ -538,6 +538,31 @@ quality-limited - the remaining gap is training scale on the diffusion
 objective, not a setting. LLaDA-class models train on hundreds of billions of
 tokens; this one has 25M.
 
+
+## Deliverable, in one table
+
+| what | number | how measured |
+|---|---|---|
+| token parity vs AR greedy | **1.000** | `parity_sweep.py`, 4 prompts x 24 tokens |
+| usable decode speed | **61.9 tok/s, 1.93x plain AR** | `speed_wallclock.py`, 64 tokens |
+| held-out diffusion loss | **4.779** vs base 15.717 | `heldout_eval.py`, 31 unseen rows |
+| causal capability | **4.396 ppl** vs base 4.419 | `causal_ppl.py`, same rows |
+| arc_easy / piqa / hellaswag | **0.533 / 0.675 / 0.398** vs 0.420 / 0.590 / 0.405 | `lm_eval`, 400 samples each |
+| tests | 98 passed | `pytest tests/ -q` |
+| export | loads, 24 layers, mask row != pad row | `assert_export.py` |
+
+Falsified levers, each measured rather than argued: decode geometry (5 settings,
+identical), draft width (2/4/8, flat), longer supervised training (25M -> 50M
+made it worse), acceptance distillation (two formulations, both worse), an
+all-masked training corner, and pure-mask decode conditioning. The parallel path
+reaches 6.06x wall-clock but produces repetition collapse at every setting,
+including the mildest, so it is throughput without output.
+
+The one lever left is training volume on the diffusion objective: oracle drafts
+show the machinery reaching 2.29 tokens per forward, and the denoiser's
+fill quality - not the decode rule - is what caps it. That is data scale, not a
+code change.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
