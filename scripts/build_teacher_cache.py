@@ -190,7 +190,8 @@ def main(argv=None) -> int:
             new = out_ids[i, max_p:].tolist()
             if eos in new:
                 new = new[: new.index(eos) + 1]
-            if len(new) >= 2 and len(p) + len(new) <= args.seq_len:
+            if len(new) >= 2 and _fits(p, new, args.s_phys, args.block_size,
+                                      args.n_masks):
                 pending.append((p, new))
         pending_prompts = []
         flush_batch()
@@ -267,6 +268,9 @@ def main(argv=None) -> int:
                 if not str(reference).strip() or str(reference).strip() == "N/A":
                     continue  # prompt-only row and no rollout requested
                 response_ids = enc[1]
+            if not _fits(prompt_ids, response_ids, args.s_phys,
+                         args.block_size, args.n_masks):
+                continue  # cannot pack into one row; the collator would raise
             pool.append((prompt_ids, response_ids))
             if len(pool) >= args.batch_size * 4:
                 # length bucketing: batching similar lengths removes the

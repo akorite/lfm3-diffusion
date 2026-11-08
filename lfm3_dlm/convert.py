@@ -171,7 +171,8 @@ def merge_mixer_state(
         merged[k] = v
     model.load_state_dict(merged, strict=True)
     model.config.attention_mode = attention_mode
-    copy_pad_embedding_to_mask(model)
+    # the mask row is the only embedding row training moves; re-seeding it
+    # from the pad row here would silently discard the trained value
     _write_export(model, base, dst)
     return dst
 

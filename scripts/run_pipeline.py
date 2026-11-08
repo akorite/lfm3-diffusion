@@ -82,7 +82,7 @@ def main():
         return
 
     # 2) parity gate on the teacher cache (cheap, decision-relevant)
-    run(f"cd {ROOT} && python - <<'PY'\n"
+    rc = run(f"cd {ROOT} && python - <<'PY'\n"
         "import json, torch\n"
         "from lfm3_dlm import Lfm3ForCausalLM\n"
         "from lfm3_dlm.eval.token_parity import simulate_parity\n"
@@ -95,8 +95,9 @@ def main():
         "    t = int(m(input_ids=cur).logits[0, -1, :125033].argmax()); ref.append(t)\n"
         "    cur = torch.cat([cur, torch.tensor([[t]], device='cuda')], 1)\n"
         "reps = simulate_parity(m, generate, p, ref, strides=(4, 7), taus=(0.55,))\n"
-        "best = max(r.predicted_tpf for r in reps['ar_trust'])\n"
+        "best = max(r.realized_tpf for r in reps['spd'])\n"
         "print('PARITY_TPF', round(best, 3))\n"
+        "import sys; sys.exit(0 if best >= 4.5 else 1)\n"
         "PY", "parity")
 
     if rc != 0:

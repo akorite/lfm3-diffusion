@@ -148,7 +148,8 @@ def main(argv=None) -> int:
     while True:
         if args.max_steps and trainer.step >= args.max_steps:
             break
-        if trainer.tokens_seen >= cfg.get("total_tokens", 300_000_000):
+        # `tokens_seen` counts physical lanes; the step budget is the schedule
+        if args.max_steps == 0 and trainer.tokens_seen >= cfg.get("total_tokens", 3 * 10**8):
             break
         if cursor >= len(cache):
             cursor = 0
