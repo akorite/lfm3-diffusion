@@ -76,6 +76,23 @@ FP8 frozen MLPs measured **no speedup** (9.1k vs 9.3k tok/s) and more VRAM,
 because the input-gradient copy keeps the bf16 weights resident; the FP8 path
 is opt-in (`fp8_mlps: true`) until it earns its place.
 
+## Long jobs on this CLI
+
+The Colab CLI documents **activity-based liveness**: a session stays alive while
+the *kernel* is active. A `setsid nohup` process is not kernel activity, so a
+detached chain can be reaped mid-run even though it looked healthy — observed
+here as a cache build that finished and then never started training.
+
+Run long work as a **blocking `colab exec` with its own timeout**, in chunks:
+
+```bash
+colab exec -s lfm3-g4 -f chunk.py --timeout 3200   # chunk.py runs ~48 min, then exits
+```
+
+and keep `checkpoint_interval_tokens` small enough (4M tokens ≈ 450 steps) that
+a chunk boundary loses only minutes. `colab run` is not a substitute: it tears
+the VM down when the script exits.
+
 ## Stopping
 
 ```bash
