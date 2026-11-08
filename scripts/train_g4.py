@@ -125,7 +125,8 @@ def main(argv=None) -> int:
             if corpus and int(torch.randint(0, 5, (1,), generator=rng)) == 0:
                 batch.append(corpus[int(torch.randint(0, len(corpus), (1,), generator=rng))])
             else:
-                batch.append(cache.example(cursor))
+                # wrap per draw: a short cache must still fill the batch
+                batch.append(cache.example(cursor % len(cache)))
                 cursor += 1
         loss = trainer.train_step(batch)
         lr = cosine_lr(trainer.step, cfg["max_steps"], cfg.get("warmup_steps", 0),
