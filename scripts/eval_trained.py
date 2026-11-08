@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch
 from lfm3_dlm import Lfm3ForCausalLM
-from lfm3_dlm.tokenizer import load_tokenizer
+from lfm3_dlm.tokenizer import format_chat, load_tokenizer
 from lfm3_dlm.train.collator import IM_END_ID, SharedPrefixCollator
 from lfm3_dlm.train.loss_cad import compute_step_loss
 from lfm3_dlm.sample import generate
@@ -57,7 +57,8 @@ def main():
     ]
     samples, tpfs = [], []
     for text_prompt in texts:
-        ids = tok(text_prompt, return_tensors="pt").input_ids.cuda()
+        ids = tok(format_chat(text_prompt), return_tensors="pt",
+                  add_special_tokens=False).input_ids.cuda()
         res = generate(model, ids, mode="ar_trust", max_new_tokens=48, isd_width=4,
                        block_size=8, small_block=4)
         samples.append(tok.decode(res.ids[0, ids.shape[1]:].tolist(),

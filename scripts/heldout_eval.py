@@ -16,7 +16,7 @@ import torch
 
 from lfm3_dlm import Lfm3ForCausalLM
 from lfm3_dlm.sample import generate
-from lfm3_dlm.tokenizer import load_tokenizer
+from lfm3_dlm.tokenizer import format_chat, load_tokenizer
 from lfm3_dlm.train.collator import IM_END_ID, SharedPrefixCollator
 from lfm3_dlm.train.loss_cad import compute_step_loss
 
@@ -37,8 +37,7 @@ def build_examples(dataset_file, start, count, tokenizer, s_phys, block_size=32)
             p = tokenizer.apply_chat_template(msgs, add_generation_prompt=True,
                                               tokenize=True)
         else:
-            p = tokenizer.encode("\n".join(m.get("content", "") for m in msgs) + "\n",
-                                 add_special_tokens=True)
+            p = tokenizer.encode(format_chat(msgs), add_special_tokens=False)
         r = tokenizer.encode(str(row["output"]), add_special_tokens=False)
         r = r + [tokenizer.eos_token_id or IM_END_ID]
         rr = max(block_size, -(-len(r) // block_size) * block_size)

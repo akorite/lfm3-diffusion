@@ -25,4 +25,22 @@ def load_tokenizer(path: str | Path | None = None):
     return tok
 
 
-__all__ = ["MASK_TOKEN", "MASK_TOKEN_ID", "load_tokenizer"]
+START_OF_TEXT = "<|startoftext|>"
+
+
+def format_chat(messages, add_generation_prompt: bool = True) -> str:
+    """LFM3's chat format, spelled out because the vendored assets carry no
+    chat template. Feeding raw text makes the model repeat the prompt instead
+    of answering, so every prompt path goes through here."""
+    if isinstance(messages, str):
+        messages = [{"role": "user", "content": messages}]
+    parts = []
+    for m in messages:
+        content = m.get("content", "") if isinstance(m, dict) else str(m)
+        parts.append(f"{START_OF_TEXT}{m.get('role', 'user')}\n{content}<|im_end|>\n")
+    if add_generation_prompt:
+        parts.append(f"{START_OF_TEXT}assistant\n")
+    return "".join(parts)
+
+
+__all__ = ["MASK_TOKEN", "MASK_TOKEN_ID", "load_tokenizer", "format_chat"]

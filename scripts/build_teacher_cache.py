@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch
 
 from lfm3_dlm.data.top16_cache import BYTES_PER_TOKEN, TOP_K, pack_top16, unpack_top16
-from lfm3_dlm.tokenizer import MASK_TOKEN_ID, load_tokenizer
+from lfm3_dlm.tokenizer import MASK_TOKEN_ID, format_chat, load_tokenizer
 
 OUTPUT_VOCAB = 125_033
 TAU_FLOOR = 0.02
@@ -50,10 +50,7 @@ def _encode(tokenizer, prompt, response, seq_len):
             prompt, add_generation_prompt=True, tokenize=True
         )
     else:
-        # the vendored tokenizer assets carry no chat template: fall back to
-        # the plain prompt text so teacher forcing still works
-        text = prompt[0]["content"] if isinstance(prompt, list) else str(prompt)
-        prompt_ids = tokenizer.encode(text + "\n", add_special_tokens=True)
+        prompt_ids = tokenizer.encode(format_chat(prompt), add_special_tokens=False)
     response_ids = tokenizer.encode(response, add_special_tokens=False)
     response_ids = response_ids + [tokenizer.eos_token_id or 124_900]
     if len(response_ids) >= seq_len:

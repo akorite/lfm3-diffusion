@@ -18,7 +18,7 @@ import torch
 
 from lfm3_dlm import Lfm3ForCausalLM
 from lfm3_dlm.sample import generate
-from lfm3_dlm.tokenizer import load_tokenizer
+from lfm3_dlm.tokenizer import format_chat, load_tokenizer
 
 OUTPUT_VOCAB = 125_033
 
@@ -70,7 +70,8 @@ def main(argv=None) -> int:
         "Give one reason a database index speeds up reads.",
         "Translate 'good morning' into Spanish and German.",
     ][: args.prompts]
-    prompts = [tok(t, return_tensors="pt").input_ids.cuda() for t in texts]
+    prompts = [tok(format_chat(t), return_tensors="pt",
+                     add_special_tokens=False).input_ids.cuda() for t in texts]
 
     configs = [
         ("ar_trust_2", dict(mode="ar_trust", isd_width=2)),

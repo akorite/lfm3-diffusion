@@ -91,9 +91,8 @@ def corpus_examples(dataset_id, split, prompt_field, response_field, tokenizer,
             p = tokenizer.apply_chat_template(prompt_msgs, add_generation_prompt=True,
                                               tokenize=True)
         else:
-            # vendored tokenizer assets carry no template: plain text
-            text = "\n".join(m.get("content", "") for m in prompt_msgs)
-            p = tokenizer.encode(text + "\n", add_special_tokens=True)
+            from lfm3_dlm.tokenizer import format_chat
+            p = tokenizer.encode(format_chat(prompt_msgs), add_special_tokens=False)
         r = tokenizer.encode(str(example[response_field]), add_special_tokens=False)
         r = r + [tokenizer.eos_token_id or 124_900]
         if _packs(p, r, seq_len, block_size):
