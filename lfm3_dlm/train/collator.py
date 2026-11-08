@@ -30,6 +30,8 @@ T_LOW, T_HIGH = 0.35, 0.95
 # t=1.0 rows teach the all-masked corner the sampler's first draft step feeds;
 # long training on [0.35, 0.95] alone drifts away from it (see docs/runs).
 MASK_TOKEN_FRAC = 0.8
+# the sampler feeds the mask embedding at every noisy slot, so a fraction below
+# 1.0 leaves a decode-time input the model never saw
 REVEALED_CE_WEIGHT = 0.2
 TOP_K = 16
 
@@ -72,11 +74,13 @@ class SharedPrefixCollator:
         rng: torch.Generator | None = None,
         n_masks: int = 2,
         t_high: float = T_HIGH,
+        mask_token_frac: float = MASK_TOKEN_FRAC,
     ):
         if n_masks < 2:
             raise ValueError("n_masks must be >= 2 (the complementary pair)")
         self.n_masks = n_masks
         self.t_high = t_high
+        self.mask_token_frac = mask_token_frac
         self.s_phys = s_phys
         self.block_size = block_size
         self.mask_token_id = mask_token_id
@@ -192,7 +196,7 @@ class SharedPrefixCollator:
         m = torch.rand(e + 1, generator=g, device=dev) < t  # mask set for stream1
 
         # corruption draws
-        use_mask_tok = torch.rand(e + 1, generator=g, device=dev) < MASK_TOKEN_FRAC
+        use_mask_tok = torch.rand(e + 1, generator=g, device=dev) < self.mask_token_frac
         if oid is not None:
             confusions = oid[: e + 1].to(dev)
         elif tid is not None:

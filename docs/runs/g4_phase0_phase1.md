@@ -484,6 +484,27 @@ with `max_steps: 3700` and `total_tokens: 40M`.
 `checkpoint.pt` bundle and refuse a zero-tensor load, so a mistyped path can no
 longer silently measure the base model.
 
+
+## Diffusion-mode speed and what it costs in text (measured)
+
+`spd_speed.py` sweeps block geometry and the commit threshold; `spd_quality.py`
+prints a 64-token sample for the interesting settings. Same weights, same
+prompt ("Explain why the sky is blue.").
+
+| config | tokens/forward | distinct tokens in 64 | sample |
+|---|---|---|---|
+| ar_trust, width 4 | 1.21 | fluent | "We need to explain why the sky is blue. This is a classic question about Rayleigh scattering..." |
+| spd block 8 / small 4 / hc 0.9 | 1.73 | 11 | "...the blue blue the sky is blue. is. the. The is the the the the..." |
+| spd block 16 / small 16 / hc 0.5 | 6.4 | 5 | "...We is the the blue blue the the the the..." |
+| spd block 32 / small 16 / hc 0.7 | 6.4 | 5 | "...The   .. the the the the the..." |
+| spd block 32 / small 32 / hc 0.3 | **9.14** | 6 | "...The user   .. the the the the the..." |
+
+So the throughput is available — 9.1 tokens per forward — and the text is a
+repetition collapse at every setting, including the mildest (1.73). Only
+AR-Trust stays fluent. A diffusion LM's speed comes from committing many tokens
+per forward; this model can commit them but cannot choose them, which is a
+training-scale statement, not a decode-knob one.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:

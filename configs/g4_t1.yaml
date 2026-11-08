@@ -23,6 +23,7 @@ block_size: 32
 
 total_tokens: 40_000_000   # must exceed the seed checkpoint's 25M tokens_seen, else the loop exits at once
 t_high: 1.0          # all-masked rows are the draft's first-step conditioning
+mask_token_frac: 1.0  # every noisy slot is the mask embedding, as at decode
 max_steps: 3700        # the seed checkpoint is step 2,700: 1,000 steps past it
 warmup_steps: 600
 

@@ -67,6 +67,7 @@ class DLMTrainer:
             rng=self.rng,
             n_masks=config.get("n_masks", 2),
             t_high=config.get("t_high", 0.95),
+            mask_token_frac=config.get("mask_token_frac", 0.8),
         )
         if config.get("freeze_mlps", True):
             freeze_mlp_weights(model, fp8=config.get("fp8_mlps", False))
