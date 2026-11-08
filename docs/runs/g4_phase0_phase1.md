@@ -6,14 +6,28 @@ Status: in progress. Numbers below are filled from the live run.
 
 Balance when the run started: **216.79 CU** after the gate experiments.
 
-Teacher throughput measured on the G4 (`divelab/opdlm_train_data`, greedy
-rollout, `max_new_tokens=128`):
+Teacher throughput measured on the G4. Rollout mode (teacher generates) is
+decode-bound and too slow to reach the plan's volume:
 
 | rollout batch | cached tokens/s |
 |---|---|
 | 1 (per-example loop) | 68 |
 | 16 | 444 |
 | 32–64 | ~700 |
+
+Reference forcing over a long-answer corpus is the path that fits the budget.
+`nvidia/Llama-Nemotron-Post-Training-Dataset` (`SFT`, `chat`; `input` →
+`output`) at `seq_len=4096`, batch 16, with **length-bucketed batches** and
+prompt-tail truncation:
+
+| builder | cached tokens/s |
+|---|---|
+| per-example, no bucketing (opdlm) | ~200 |
+| batched, no bucketing | ~840 |
+| batched + length bucketing (Nemotron) | **17,047** |
+
+The bucketing is what matters: an unbucketed chat batch pads every row to the
+longest one, and the padding work dominates.
 
 At 700 tok/s a 6M-token cache costs ~2.4 h (~24 CU). Phase 1 at 5.1k corpus
 tok/s for 12,200 steps (100M corpus tokens) costs ~5.4 h (~54 CU). Export and
