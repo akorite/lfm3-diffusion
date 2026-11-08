@@ -46,6 +46,8 @@ from transformers.utils.output_capturing import capture_outputs
 
 from .configuration_lfm3 import Lfm3Config
 from .lfm3_conv import can_use_lfm3_conv, lfm3_causal_conv1d, lfm3_causal_conv1d_update
+from .conv_halo import build_conv_halo, halo_conv1d
+from .masks import create_dlm_masks_by_layer_type
 
 # Rows at and above this index (mask token plus unused tail) are excluded from
 # the output softmax by slicing the classifier rather than masking logits.
@@ -368,6 +370,8 @@ class Lfm3ShortConv(nn.Module):
         past_key_values: Cache | None = None,
         attention_mask: torch.Tensor | None = None,
         seq_idx: torch.IntTensor | None = None,
+        halo_idx: torch.LongTensor | None = None,
+        halo_valid: torch.Tensor | None = None,
     ):
         seq_len = hidden_states.shape[1]
 
@@ -410,7 +414,10 @@ class Lfm3ShortConv(nn.Module):
                     hidden_states, self.layer_idx, conv_kernel_size=self.conv_kernel_size
                 )
 
-            if use_wide_kernel:
+            if halo_idx is not None:
+                # packed noisy streams read the clean halo, never their physical left neighbors
+                hidden_states = halo_conv1d(hidden_states, halo_idx, halo_valid, self.conv.weight, self.conv.bias)
+            elif use_wide_kernel:
                 hidden_states = lfm3_causal_conv1d(hidden_states, self.conv.weight.squeeze(1), self.conv.bias, seq_idx)
             elif seq_idx is not None:
                 hidden_states = self._segmented_conv(hidden_states, seq_idx)
@@ -471,6 +478,8 @@ class Lfm3DecoderLayer(GradientCheckpointingLayer):
         position_ids: torch.LongTensor | None = None,
         past_key_values: Cache | None = None,
         seq_idx: torch.IntTensor | None = None,
+        halo_idx: torch.LongTensor | None = None,
+        halo_valid: torch.Tensor | None = None,
         **kwargs,
     ) -> torch.Tensor:
         residual = hidden_states
@@ -489,6 +498,8 @@ class Lfm3DecoderLayer(GradientCheckpointingLayer):
                 past_key_values=past_key_values,
                 attention_mask=attention_mask,
                 seq_idx=seq_idx,
+                halo_idx=halo_idx,
+                halo_valid=halo_valid,
             )
         if self.use_sandwich_norm:
             hidden_states = self.post_operator_norm(hidden_states)
@@ -630,6 +641,9 @@ class Lfm3Model(Lfm3PreTrainedModel):
         """
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+        if self.config.attention_mode == "block_diffusion":
+            doc_ids = kwargs.pop("doc_ids", None)
+            stream_ids = kwargs.pop("stream_ids", None)
         # `seq_idx` is a shared kwarg (`DataCollatorWithFlattening(return_seq_idx=True)`, read by Lfm2); LFM3 derives
         # the documents from the restarting `position_ids` that come with it
         if kwargs.pop("seq_idx", None) is not None and position_ids is None:
@@ -679,7 +693,7 @@ class Lfm3Model(Lfm3PreTrainedModel):
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
             position_ids = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device) + past_seen_tokens
             position_ids = position_ids.unsqueeze(0)
-        elif explicit_positions and not isinstance(attention_mask, dict):
+        elif explicit_positions and not isinstance(attention_mask, dict) and self.config.attention_mode == "causal":
             # a mask dict comes from `generate`, which refused packing before its prefill
             if isinstance(attention_mask, torch.Tensor) and attention_mask.ndim == 2:
                 # data-dependent: a traced forward skips it (`generate` refuses packing eagerly before its prefill)
@@ -716,8 +730,36 @@ class Lfm3Model(Lfm3PreTrainedModel):
                     # resolved here, where the prefill already syncs, so the decode steps carry a Python flag: no
                     # per-step host sync, data-dependent op or CUDA-graph output on the cache
                     past_key_values.lfm3_packed = packed if is_tracing(position_ids) else bool(packed)
+        if self.config.attention_mode == "block_diffusion":
+            # packed `[P | R_clean | R_m1 | R_m2]` rows: documents restart `position_ids`, streams are explicit;
+            # `doc_ids` drives both the attention masks and the short-conv document isolation (`seq_idx`)
+            if doc_ids is None:
+                restarts = torch.diff(position_ids, prepend=position_ids[:, :1] - 1, dim=-1) != 1
+                doc_ids = restarts.to(torch.long).cumsum(-1)
+            if stream_ids is None:
+                stream_ids = torch.zeros_like(position_ids)
+            seq_idx = doc_ids.to(torch.int32)
 
-        if not isinstance(causal_mask_mapping := attention_mask, dict):
+        halo_idx = halo_valid = None
+        if self.config.attention_mode == "block_diffusion":
+            if "conv" in self.config.layer_types:
+                halo_idx, halo_valid = build_conv_halo(
+                    position_ids, doc_ids, stream_ids, kernel_size=self.config.conv_L_cache,
+                    block_size=getattr(self.config, "diffusion_block_size", 32),
+                )
+            if not isinstance(attention_mask, dict):
+                causal_mask_mapping = create_dlm_masks_by_layer_type(
+                    self.config,
+                    inputs_embeds=inputs_embeds,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    doc_ids=doc_ids,
+                    stream_ids=stream_ids,
+                    block_size=getattr(self.config, "diffusion_block_size", 32),
+                )
+            else:
+                causal_mask_mapping = attention_mask
+        elif not isinstance(causal_mask_mapping := attention_mask, dict):
             mask_kwargs = {
                 "config": self.config,
                 "inputs_embeds": inputs_embeds,
@@ -758,6 +800,8 @@ class Lfm3Model(Lfm3PreTrainedModel):
                 position_ids=position_ids,
                 past_key_values=past_key_values,
                 seq_idx=seq_idx,
+                halo_idx=halo_idx,
+                halo_valid=halo_valid,
                 **kwargs,
             )
 
