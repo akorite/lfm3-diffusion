@@ -190,8 +190,8 @@ Two things this settles early:
 
 ## Live status (VM clock 16:38 UTC, session up 3h22m)
 
-- training step **1,641 / 7,000** (23%), loss deciles 57.0 → 27.7)
-- throughput **5,084 physical tok/s** after killing a duplicate trainer that
+- training step **2,000 / 7,000** (29%), loss deciles 59.5 → 27.8 (plateau band 27-38, block-32 noise)
+- throughput **5,393 physical tok/s** after killing a duplicate trainer that
   was sharing the GPU (the interleaved step numbers were the tell)
 - one checkpoint on disk; balance **183.32 CU** (floor 50)
 - projected finish ~21:00 UTC, Colab cutoff 01:16 UTC
