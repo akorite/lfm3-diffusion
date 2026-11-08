@@ -118,13 +118,15 @@ def test_cached_step_matches_uncached_recompute():
     kv_block[0, P:] = blocks[0, P:]
     kv_fed = torch.zeros(1, P + n, dtype=torch.bool)
     kv_fed[0, P:] = True
+    kv_noisy = torch.zeros(1, P + n, dtype=torch.bool)
+    kv_noisy[0, P:] = q_noisy[0, P:]
     committed = torch.tensor([C])
     masks = {}
     for i, t in enumerate(model.config.layer_types):
         masks[t] = None if t == "conv" else build_step_mask(
             t, model.config.sliding_window if t == "sliding_attention" else None,
             q_pos, q_noisy, q_valid, blocks, kv_pos, kv_block, kv_fed,
-            torch.ones(1, P + n, dtype=torch.bool), committed, torch.float32)
+            torch.ones(1, P + n, dtype=torch.bool), kv_noisy, committed, torch.float32)
     ref = model(inputs_embeds=full_emb.unsqueeze(0), position_ids=full_pos,
                 attention_mask=masks).logits[0, :, :OUTPUT_VOCAB]
     assert torch.allclose(cached_logits, ref[P:], atol=1e-4)
@@ -149,3 +151,39 @@ def test_rejects_block_diffusion_mode():
     model.config.attention_mode = "block_diffusion"
     with pytest.raises(ValueError):
         generate(model, torch.randint(0, 100_000, (1, 4)))
+
+
+def test_noisy_feeds_use_logical_block_ids():
+    """Training partitions noisy positions by `logical pos // B`; the sampler
+    must use the same convention or train/inference blocks disagree whenever
+    the prompt length is not block-aligned."""
+    model = make_model(["conv", "full_attention", "sliding_attention"])
+    block, P = 8, 11  # deliberately not a multiple of the block size
+    seen = []
+
+    def hook(_r, _phase, feeds, _row):
+        seen.extend(feeds)
+
+    generate(model, torch.randint(0, 100_000, (1, P)), mode="spd",
+             max_new_tokens=12, block_size=block, small_block=4,
+             step_hook=hook)
+    assert seen
+    for pos, kind, blk, _tok in seen:
+        assert blk == pos // block, (pos, kind, blk)
+
+
+def test_batched_rows_match_their_single_row_runs():
+    """Two prompts in one batch must decode exactly as they do alone; a shared
+    cache cursor that treats the physical index as a logical position breaks
+    this as soon as the rows commit at different rates."""
+    model = make_model(["conv", "full_attention"])
+    torch.manual_seed(3)
+    a = torch.randint(0, 100_000, (1, 6))
+    b = torch.randint(0, 100_000, (1, 6))
+    pair = torch.cat([a, b])
+    kwargs = dict(mode="ar_trust", max_new_tokens=10, isd_width=4, block_size=8)
+    solo_a = generate(model, a, **kwargs).ids[0, 6:]
+    solo_b = generate(model, b, **kwargs).ids[0, 6:]
+    batched = generate(model, pair, **kwargs).ids
+    assert batched[0, 6:].tolist() == solo_a.tolist()
+    assert batched[1, 6:].tolist() == solo_b.tolist()

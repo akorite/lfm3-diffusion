@@ -76,6 +76,7 @@ def build_step_mask(
     kv_block: torch.Tensor,   # [B, K] block ids for FED keys (<0 for cache)
     kv_fed: torch.Tensor,     # [B, K] bool: key lives in this step's feed
     kv_valid: torch.Tensor,   # [B, K] bool (False for padded fed slots)
+    kv_noisy: torch.Tensor,   # [B, K] bool: fed key is a noisy-block slot
     committed: torch.Tensor,  # [B] clean KV length
     dtype: torch.dtype,
 ) -> torch.Tensor:
@@ -83,23 +84,27 @@ def build_step_mask(
 
     Every query sees the committed prefix (`kv_pos < committed`); fed slots
     are visible to a causal query iff `kv_pos <= q_pos`, and to a noisy
-    query iff same block (bidirectional within the block) or causal.
-    Sliding layers additionally require `q - kv < window` except inside the
-    noisy block itself.
+    query iff the slot is a noisy key in the same block (bidirectional
+    within the block) or causal. Sliding layers additionally require
+    `q - kv < window` except inside the noisy block itself.
     """
     ql = q_pos[:, :, None]
     kl = kv_pos[:, None, :]
     same_block = q_block[:, :, None] == kv_block[:, None, :]
     fed_ok = kv_fed[:, None, :] & kv_valid[:, None, :]
     causal_pair = kl <= ql
-    noisy_pair = q_noisy[:, :, None] & same_block & fed_ok
+    # clean fed keys at the query's own position or block stay out: they are
+    # the very tokens the noisy block predicts
+    noisy_pair = q_noisy[:, :, None] & same_block & fed_ok & kv_noisy[:, None, :]
     allowed = q_valid[:, :, None] & (
         ((kl < committed[:, None, None]) & causal_pair)
         | (fed_ok & causal_pair) | noisy_pair
     )
     if layer_type == "sliding_attention" and sliding_window is not None:
         allowed &= ((ql - kl) < sliding_window) | noisy_pair
-    return _additive(allowed, dtype)
+    # [B, 1, S, K]: without the head axis SDPA reads the batch dim as heads
+    # and any batch > 1 fails
+    return _additive(allowed, dtype).unsqueeze(1)
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +143,8 @@ class _Sampler:
                     past_key_values=self.cache.cache)
         self.n_forwards += 1
         self.cache.appended = self.P
+        self.cache_pos = torch.arange(self.P, device=self.device).expand(
+            self.B, self.P).contiguous()
         logits = out.logits[:, -1, :OUTPUT_VOCAB]
         for r in range(self.B):
             self.rows[r].committed = self.P
@@ -210,6 +217,7 @@ class _Sampler:
         fed_block = torch.full((self.B, s_max), -_BIG, dtype=torch.long,
                                device=self.device)
         fed_valid = torch.zeros(self.B, s_max, dtype=torch.bool, device=self.device)
+        fed_noisy = torch.zeros(self.B, s_max, dtype=torch.bool, device=self.device)
 
         e_mask = emb.weight[MASK_TOKEN_ID]
         self._fed_logical = []
@@ -225,6 +233,7 @@ class _Sampler:
                 fed_pos[r, j] = q_pos[r, j]
                 fed_block[r, j] = blk
                 fed_valid[r, j] = valid
+                fed_noisy[r, j] = kind == "noisy" and valid
                 if not valid or kind == "mask":
                     embeds[r, j] = e_mask
                 elif kind == "noisy":
@@ -244,12 +253,16 @@ class _Sampler:
                 masks[t] = None
                 continue
             phys = self.cache.cache.layers[i].keys.shape[-2]
-            base = self.cache.appended - phys
-            kv_pos = torch.cat([
-                torch.arange(base, self.cache.appended,
-                             device=self.device).expand(self.B, phys),
-                fed_pos,
-            ], dim=1)
+            # cache slots carry each row's own logical position, never the
+            # shared physical index: rows commit at different rates
+            cp = self.cache_pos[:, :phys]
+            if cp.shape[1] < phys:
+                cp = torch.cat([
+                    torch.full((self.B, phys - cp.shape[1]), -1,
+                               dtype=torch.long, device=self.device),
+                    cp,
+                ], dim=1)
+            kv_pos = torch.cat([cp, fed_pos], dim=1)
             kv_block = torch.cat([
                 torch.full((self.B, phys), -_BIG, dtype=torch.long,
                            device=self.device),
@@ -259,21 +272,36 @@ class _Sampler:
                 torch.zeros(self.B, phys, dtype=torch.bool, device=self.device),
                 torch.ones(self.B, s_max, dtype=torch.bool, device=self.device),
             ], dim=1)
-            kv_valid = torch.cat([
-                torch.ones(self.B, phys, dtype=torch.bool, device=self.device),
-                fed_valid,
+            kv_valid = torch.cat([cp >= 0, fed_valid], dim=1)
+            kv_noisy = torch.cat([
+                torch.zeros(self.B, phys, dtype=torch.bool, device=self.device),
+                fed_noisy,
             ], dim=1)
             masks[t] = build_step_mask(
                 t, self.cfg.sliding_window if t == "sliding_attention" else None,
                 q_pos, q_noisy, q_valid, q_block,
-                kv_pos, kv_block, kv_fed, kv_valid, committed, embeds.dtype)
+                kv_pos, kv_block, kv_fed, kv_valid, kv_noisy,
+                committed, embeds.dtype)
 
         self._set_conv_states()
+        base_idx = self.cache.appended
         out = self.model(inputs_embeds=embeds, position_ids=q_pos,
                          attention_mask=masks,
                          past_key_values=self.cache.cache, use_cache=True)
         self.n_forwards += 1
         self.cache.appended += s_max
+        # re-fed positions invalidate the copies written earlier (rejected
+        # drafts), then the new slots record each row's own logical position
+        for r in range(self.B):
+            fresh = fed_pos[r][fed_valid[r]]
+            if fresh.numel() and base_idx:
+                slot = self.cache_pos[r, :base_idx]
+                slot[torch.isin(slot, fresh)] = -1
+        self.cache_pos = torch.cat([
+            self.cache_pos,
+            torch.where(fed_valid, fed_pos,
+                        torch.full_like(fed_pos, -1)),
+        ], dim=1)
 
         logits = out.logits[:, :, :OUTPUT_VOCAB]
         # shifted predictors: logits@fed slot pos predict the token at pos+1
@@ -300,7 +328,9 @@ class _Sampler:
             + (1 - p.max()) * e_mask
 
     def _crop(self):
-        self.cache.crop(max(row.committed for row in self.rows))
+        keep = max(row.committed for row in self.rows)
+        self.cache.crop(keep)
+        self.cache_pos = self.cache_pos[:, :keep]
 
     # -- emit -----------------------------------------------------------------
 
@@ -349,9 +379,9 @@ class _Sampler:
                       B if (C == block_start and n_pend == 0) else self.small)
         if n_pend + n_noisy <= 0:
             return None
-        feeds = [(C + i, "clean", (C + i - P) // B, pend[i])
+        feeds = [(C + i, "clean", (C + i) // B, pend[i])
                  for i in range(n_pend)]
-        feeds += [(C + n_pend + i, "noisy", (C + n_pend + i - P) // B, None)
+        feeds += [(C + n_pend + i, "noisy", (C + n_pend + i) // B, None)
                   for i in range(n_noisy)]
         return feeds
 
@@ -432,8 +462,8 @@ class _Sampler:
             if r in rows and pend:
                 C = row.committed
                 feeds.append(
-                    [(C + i, "clean", 0, pend[i]) for i in range(len(pend))]
-                    + [(C + len(pend) + j, "mask", 0, None) for j in range(k)])
+                    [(C + i, "clean", (C + i) // self.block, pend[i]) for i in range(len(pend))]
+                    + [(C + len(pend) + j, "mask", (C + len(pend) + j) // self.block, None) for j in range(k)])
             else:
                 feeds.append([])
         self._forward(feeds)
@@ -465,7 +495,7 @@ class _Sampler:
         for r in range(self.B):
             if r in cand:
                 C = self.rows[r].committed
-                feeds.append([(C + j, "clean", 0, cand[r][j])
+                feeds.append([(C + j, "clean", (C + j) // self.block, cand[r][j])
                               for j in range(k)])
             else:
                 feeds.append([])
