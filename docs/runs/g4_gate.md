@@ -42,6 +42,19 @@ build; the two levers cannot be combined as written.
   ~12.8 h ≈ 129 CU, against the plan's 46–55 CU. It fits the 224 CU balance but
   not the phase budget.
 
+## Reproduced by `scripts/bench_training_step.py` (2026-11-08)
+
+```
+{"device": "cuda", "s_phys": 4096, "microbatch": 1, "flex": true,
+ "checkpointing": false, "s_per_step": 1.51, "corpus_tok_s": 5425,
+ "peak_vram_gb": 29.1, "gate_corpus_tok_s": 22000, "gate_vram_gb": 65.0,
+ "passes": false}
+```
+
+The script packs four examples per step (one row each at `P=R=s_phys/4`), so
+`s_per_step` is four rows; per-row cost matches the table above. It exits
+non-zero, so a run script can be gated on it.
+
 ## Not yet tried
 
 - Larger effective batch with activation checkpointing *without* FlexAttention
