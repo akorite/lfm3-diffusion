@@ -50,11 +50,16 @@ def main(argv=None) -> int:
     ap.add_argument("--tokens", type=int, default=32)
     ap.add_argument("--block-size", type=int, default=8)
     ap.add_argument("--small-block", type=int, default=4)
+    ap.add_argument("--weights", default=None,
+                    help="trained state dict to score; omit to score the base model")
     ap.add_argument("--out", default="docs/runs/parity_sweep.md")
     args = ap.parse_args(argv)
 
     tok = load_tokenizer()
-    model = Lfm3ForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16).cuda().eval()
+    model = Lfm3ForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16)
+    if args.weights:
+        model.load_state_dict(torch.load(args.weights, map_location="cpu"), strict=False)
+    model = model.cuda().eval()
     model.config.attention_mode = "causal"
 
     texts = [
