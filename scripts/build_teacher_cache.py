@@ -43,7 +43,8 @@ def _fits(prompt_ids, response_ids, s_phys, block_size, n_masks):
     return len(prompt_ids) + (1 + n_masks) * r <= s_phys
 
 
-def _encode(tokenizer, prompt, response, seq_len):
+def _encode(tokenizer, prompt, response, seq_len, s_phys=4096, block_size=32,
+            n_masks=2):
     """Prompt ids, plus reference-response ids when one exists."""
     if tokenizer.chat_template:
         prompt_ids = tokenizer.apply_chat_template(
@@ -53,12 +54,18 @@ def _encode(tokenizer, prompt, response, seq_len):
         prompt_ids = tokenizer.encode(format_chat(prompt), add_special_tokens=False)
     response_ids = tokenizer.encode(response, add_special_tokens=False)
     response_ids = response_ids + [tokenizer.eos_token_id or 124_900]
+    # a packed row is P + (1+K)R, so cap the answer at what one row can hold
+    # instead of dropping every long example (the corpus is chat: most answers
+    # are long, and dropping them leaves almost no tokens)
+    room = s_phys - len(prompt_ids)
+    max_r = max(block_size, (room // (1 + n_masks)) // block_size * block_size)
+    if len(response_ids) > max_r:
+        eos = response_ids[-1]
+        response_ids = response_ids[: max_r - 1] + [eos]
     if len(response_ids) >= seq_len:
-        return None  # the answer alone does not fit
-    room = seq_len - len(response_ids)
-    if len(prompt_ids) > room:
-        # keep the tail of a long conversation: the last user turn survives
-        prompt_ids = prompt_ids[-room:]
+        return None
+    if len(prompt_ids) + len(response_ids) > seq_len:
+        prompt_ids = prompt_ids[-(seq_len - len(response_ids)):]
     return prompt_ids, response_ids
 
 
@@ -250,7 +257,8 @@ def main(argv=None) -> int:
             if args.limit_examples and i - done >= args.limit_examples:
                 break
             prompt, reference = _chat_pair(example, args.prompt_field, args.response_field)
-            enc = _encode(tokenizer, prompt, reference, args.seq_len)
+            enc = _encode(tokenizer, prompt, reference, args.seq_len,
+                          args.s_phys, args.block_size, args.n_masks)
             if enc is None:
                 continue
             prompt_ids = enc[0]
