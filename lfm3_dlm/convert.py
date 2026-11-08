@@ -119,7 +119,7 @@ def convert_checkpoint(
     source: str | Path,
     dst: str | Path,
     *,
-    attention_mode: str = "block_diffusion",
+    attention_mode: str = "causal",
     dtype: torch.dtype | None = None,
 ) -> Path:
     """Convert a source checkpoint into a standalone diffusion-ready export.
@@ -145,7 +145,7 @@ def merge_mixer_state(
     trained: str | Path,
     dst: str | Path,
     *,
-    attention_mode: str = "block_diffusion",
+    attention_mode: str = "causal",
 ) -> Path:
     """Merge a trained checkpoint's mixer + norm weights back onto the *base*
     checkpoint's position-wise weights (the inverse direction of conversion).
@@ -184,12 +184,12 @@ def main() -> None:
     e = sub.add_parser("export", help="convert a source checkpoint into a standalone export")
     e.add_argument("source")
     e.add_argument("dst")
-    e.add_argument("--attention-mode", default="block_diffusion")
+    e.add_argument("--attention-mode", default="causal")
     m = sub.add_parser("merge", help="merge trained mixer weights back onto a base checkpoint")
     m.add_argument("base")
     m.add_argument("trained")
     m.add_argument("dst")
-    m.add_argument("--attention-mode", default="block_diffusion")
+    m.add_argument("--attention-mode", default="causal")
     args = ap.parse_args()
     if args.cmd == "export":
         convert_checkpoint(args.source, args.dst, attention_mode=args.attention_mode)

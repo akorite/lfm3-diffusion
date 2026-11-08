@@ -61,7 +61,7 @@ class DLMTrainer:
             rng=self.rng,
         )
         if config.get("freeze_mlps", True):
-            freeze_mlp_weights(model)
+            freeze_mlp_weights(model, fp8=config.get("fp8_mlps", False))
         # frozen embedding rows carry no gradient; decay would still move
         # them, so the tied table sits in a no-decay group
         emb_w = model.get_input_embeddings().weight
@@ -112,28 +112,35 @@ class DLMTrainer:
         if self._oput_due():
             examples = self._oput_corrupt(examples)
 
-        rows = self.collator(examples)
+        rows = [r.to(self.device) for r in self.collator(examples)]
         total_loss = 0.0
         self.optimizer.zero_grad(set_to_none=True)
-        for row in rows:
-            row = row.to(self.device)
+        # one forward per microbatch of packed rows: the rows share a fixed
+        # s_phys, and batching them is what keeps the GPU fed
+        micro = max(1, int(cfg.get("microbatch", 1)))
+        for start in range(0, len(rows), micro):
+            chunk = rows[start:start + micro]
             out = self.model.model(
-                input_ids=row.input_ids.unsqueeze(0),
-                position_ids=row.position_ids.unsqueeze(0),
-                doc_ids=row.doc_id.unsqueeze(0),
-                stream_ids=row.stream_id.unsqueeze(0),
+                input_ids=torch.stack([r.input_ids for r in chunk]),
+                position_ids=torch.stack([r.position_ids for r in chunk]),
+                doc_ids=torch.stack([r.doc_id for r in chunk]),
+                stream_ids=torch.stack([r.stream_id for r in chunk]),
             )
-            hidden = out.last_hidden_state.squeeze(0)
-            gs = self._gather(row)
-            res = compute_step_loss(
-                hidden, self.model.get_output_classifier(),
-                **gs,
-                w_ar=cfg.get("w_ar", 1.0),
-                causal_x0=True,
-            )
-            res.loss.backward()
-            total_loss += float(res.loss.detach())
-            self.tokens_seen += int((row.stream_id != 3).sum())
+            chunk_losses = []
+            for i, row in enumerate(chunk):
+                hidden = out.last_hidden_state[i]
+                gs = self._gather(row)
+                res = compute_step_loss(
+                    hidden, self.model.get_output_classifier(),
+                    **gs,
+                    w_ar=cfg.get("w_ar", 1.0),
+                    causal_x0=True,
+                )
+                chunk_losses.append(res.loss)
+                total_loss += float(res.loss.detach())
+                self.tokens_seen += int((row.stream_id != 3).sum())
+            # one backward per microbatch: the rows share this forward's graph
+            torch.stack(chunk_losses).sum().backward()
         self.optimizer.step()
         self.step += 1
         return total_loss

@@ -222,7 +222,7 @@ def _save_sd(sd: dict[str, torch.Tensor], dst: Path) -> None:
 def export_bf16(args) -> None:
     from lfm3_dlm.convert import convert_checkpoint
 
-    convert_checkpoint(args.source, args.dst, attention_mode="block_diffusion")
+    convert_checkpoint(args.source, args.dst, attention_mode="causal")
     print(f"BF16 export written to {args.dst}")
 
 

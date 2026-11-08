@@ -58,7 +58,7 @@ def test_export_is_self_contained_and_parity(source_dir, tmp_path):
     assert (dst / "tokenizer.json").is_file()
 
     cfg = json.loads((dst / "config.json").read_text())
-    assert cfg["attention_mode"] == "block_diffusion"
+    assert cfg["attention_mode"] == "causal"
     assert cfg["auto_map"]["AutoModelForCausalLM"] == "modeling_lfm3.Lfm3ForCausalLM"
 
     # Standalone load: custom code resolves from the exported dir itself.
