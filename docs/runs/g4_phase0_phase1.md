@@ -148,6 +148,16 @@ When training finishes the chain produces, in order:
    **trained** mask row and untouched frozen MLPs
 3. `/content/eval.json` — a sample plus the number of weight keys that loaded
 
+### Why `ar_trust` is exact
+
+`_run_ar` drafts `k` candidates, verifies them with one causal forward, and
+accepts a prefix only while the model's own argmax agrees
+(`predictors[C+j].argmax() == cand[j]`); the first mismatch is committed from
+`predictors[C+m].argmax()`, which is exactly what AR greedy would emit. So the
+emitted sequence equals uncached AR decoding token-for-token by construction,
+and `tests/test_dual_sampler.py` pins that equality. SPD is the fast path and
+its parity is an empirical number.
+
 The parity claim is measured separately, on the trained weights:
 
 ```
