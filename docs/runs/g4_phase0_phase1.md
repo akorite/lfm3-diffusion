@@ -210,11 +210,16 @@ second and prefix parity collapses to ~1/16.
 
 | model / checkpoint | config | parity | TPF |
 |---|---|---|---|
+| **base `LiquidAI/LFM3-1.7B`, untouched** | ar_trust | 1.000 | **1.07** |
 | tiny (random weights) | spd, block 4, hc 0.90/0.99/1.01 | 0.062 | 1.14 |
 | tiny (random weights) | spd, block 8, hc 0.90/0.99/1.01 | 0.062 | 1.45 |
 | **real 1.7B, ckpt-25004750** | spd | 0.062 | 1.45–1.60 |
 | **real 1.7B, ckpt-4003234** | spd | **0.188 / 0.250** | 1.33–1.60 |
 | **real 1.7B, ckpt-4003234** | ar_trust, width 4 or 8 | **1.000** | **1.07** |
+
+The base model sets the floor: it decodes at 1.07 tokens per forward under the
+same harness, so a trained TPF of 1.07 means no gain at all and 1.38 is a real
++29% over the baseline.
 
 The real-model SPD number moves with training (0.062 → 0.19–0.25), so the
 "structurally zero" reading is too strong; what holds is that SPD stays far
