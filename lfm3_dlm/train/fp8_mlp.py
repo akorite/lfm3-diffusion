@@ -15,6 +15,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ..tokenizer import MASK_TOKEN_ID
+
 
 def _scaled_mm_available() -> bool:
     return torch.cuda.is_available() and hasattr(torch, "_scaled_mm")
@@ -30,10 +32,17 @@ class _FrozenMatMul(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x, w, w_t):
-        ctx.save_for_backward(w_t)
+        # the input is kept only while the weights are trainable (the KTD2
+        # unfreeze fallback); frozen weights pay no activation retention
+        if w.requires_grad or w_t.requires_grad:
+            ctx.save_for_backward(x, w_t)
+            ctx.has_x = True
+        else:
+            ctx.save_for_backward(w_t)
+            ctx.has_x = False
         ctx.x_needs_grad = x.requires_grad
         if _scaled_mm_available() and w.dtype == torch.float8_e4m3fn:
-            sx = torch.ones(x.shape[0], 1, device=x.device, dtype=torch.float32)
+            sx = torch.ones(x.numel() // x.shape[-1], 1, device=x.device, dtype=torch.float32)
             sw = torch.ones(w.shape[0], 1, device=x.device, dtype=torch.float32)
             return torch._scaled_mm(
                 x.reshape(-1, x.shape[-1]),
@@ -46,7 +55,9 @@ class _FrozenMatMul(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dy):
-        (w_t,) = ctx.saved_tensors
+        saved = ctx.saved_tensors
+        x = saved[0] if ctx.has_x else None
+        w_t = saved[1] if ctx.has_x else saved[0]
         dx = None
         if ctx.needs_input_grad[0]:
             if _scaled_mm_available() and w_t.dtype == torch.float8_e4m3fn:
@@ -61,7 +72,17 @@ class _FrozenMatMul(torch.autograd.Function):
                 ).view(*dy.shape[:-1], w_t.shape[0])
             else:
                 dx = dy.to(torch.bfloat16) @ w_t.to(torch.bfloat16).t()
-        return dx, None, None
+        # `w` and its transposed copy are the same matrix, so unfreezing them
+        # hands each one the other's gradient transposed and they stay in step
+        dw = dw_t = None
+        if x is not None and (ctx.needs_input_grad[1] or ctx.needs_input_grad[2]):
+            d = (dy.reshape(-1, dy.shape[-1]).to(torch.bfloat16).t()
+                 @ x.reshape(-1, x.shape[-1]).to(torch.bfloat16))
+            if ctx.needs_input_grad[1]:
+                dw = d
+            if ctx.needs_input_grad[2]:
+                dw_t = d.t()
+        return dx, dw, dw_t
 
 
 class FrozenMLP(nn.Module):
@@ -93,10 +114,10 @@ class FrozenMLP(nn.Module):
 
 
 def freeze_mlp_weights(model: nn.Module, fp8: bool = None) -> int:
-    """Replace every `feed_forward` Lfm3MLP with `FrozenMLP` and freeze the
-    active embedding rows (mask row 125033 stays trainable). `fp8`
-    defaults to `_scaled_mm` availability (off on CPU). Returns the number
-    of swapped MLPs."""
+    """Replace every `feed_forward` Lfm3MLP with `FrozenMLP` and freeze all
+    vocabulary rows of the tied embedding except the mask row, which is the
+    only new output the head has to learn. `fp8` defaults to `_scaled_mm`
+    availability (off on CPU). Returns the number of swapped MLPs."""
     if fp8 is None:
         fp8 = _scaled_mm_available()
     n = 0
@@ -106,6 +127,9 @@ def freeze_mlp_weights(model: nn.Module, fp8: bool = None) -> int:
             n += 1
     emb = model.model.embed_tokens
     emb.weight.requires_grad_(True)  # mask row must learn
+    keep = torch.zeros(emb.weight.shape[0], 1, dtype=emb.weight.dtype, device=emb.weight.device)
+    keep[MASK_TOKEN_ID] = 1.0
+    emb.weight.register_hook(lambda g: g * keep)
     return n
 
 
