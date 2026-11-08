@@ -57,6 +57,20 @@ def main():
     text = tok.decode(res.ids[0, prompts.shape[1]:].tolist(), skip_special_tokens=True)
     out = {"tokens_per_forward": round(float(res.tpf), 3), "sample": text[:300],
            "weights_keys_loaded": loaded, "weights_keys_total": len(sd)}
+    cache_dir = Path(a.cache)
+    if (cache_dir / "index.jsonl").exists():
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from train_g4 import TeacherCache
+        tc = TeacherCache(cache_dir)
+        probe = []
+        for i in range(min(a.n, len(tc))):
+            ex = tc.example(i)
+            if ex is not None:
+                probe.append(ex)
+        if probe:
+            coll = SharedPrefixCollator(s_phys=4096, block_size=32, n_masks=2)
+            out["heldout_loss"] = round(heldout_loss(model, coll, probe), 3)
+            out["heldout_examples"] = len(probe)
     print("EVAL", json.dumps(out))
     Path(a.out).write_text(json.dumps(out, indent=1))
 

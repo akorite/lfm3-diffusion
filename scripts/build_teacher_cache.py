@@ -80,7 +80,6 @@ def _topk_chunk(hidden, classifier, chunk):
 
 
 @torch.no_grad()
-@torch.no_grad()
 def teacher_rollout(model, prompt_ids, max_new_tokens, eos_id):
     """Greedy rollout: the response the teacher itself would write."""
     ids = torch.tensor([prompt_ids], device=model.device)
@@ -91,6 +90,7 @@ def teacher_rollout(model, prompt_ids, max_new_tokens, eos_id):
 
 
 def teacher_rows(model, prompt_ids, response_ids, head_chunk):
+    """Per-example forcing path, kept for the CPU tests and small replays."""
     """Top-16 teacher distribution for every response token of one example."""
     ids = torch.tensor([prompt_ids + response_ids], device=model.device)
     hidden = model.model(input_ids=ids).last_hidden_state[0]
@@ -291,7 +291,6 @@ def main(argv=None) -> int:
                 }, indent=1))
         if pool:
             pool.sort(key=lambda pr: len(pr[0]) + len(pr[1]))
-            author = {'flush': pool}
             for start in range(0, len(pool), args.batch_size):
                 pending.extend(pool[start:start + args.batch_size])
                 flush_batch()
