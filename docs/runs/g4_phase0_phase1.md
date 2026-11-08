@@ -130,3 +130,25 @@ wasted it was fixed and committed:
 | Parity gate's rc discarded and it scored AR-Trust instead of the documented SPD criterion | both fixed |
 | `--max-steps` break unreachable because `tokens_seen` counts physical lanes | break on steps; token count is a guard only |
 | Eval loaded weights with `strict=False` and never scored the checkpoint | records how many keys loaded |
+
+## Post-training deliverables
+
+When training finishes the chain produces, in order:
+
+1. `/content/run3/final-ckpt` (resumable) and `/content/run3/final-weights.pt`
+2. `/content/export` — BF16 HF directory via `merge_mixer_state`, with the
+   **trained** mask row and untouched frozen MLPs
+3. `/content/eval.json` — a sample plus the number of weight keys that loaded
+
+The parity claim is measured separately, on the trained weights:
+
+```
+python scripts/parity_sweep.py --weights /content/run3/final-weights.pt \
+  --prompts 6 --tokens 32 --out /content/parity.md
+```
+
+`ar_trust` is exact by construction; `spd` rows are read off the same table at
+`hard_commit` 0.90 and 0.99. The shipped decode recommendation is whichever row
+first reaches ≥95% parity with the best TPF — if `spd` never gets there,
+`ar_trust` (or `hybrid_auto`, which routes tool-call spans through it) is the
+default and the SPD tradeoff is documented rather than hidden.
