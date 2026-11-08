@@ -8,6 +8,17 @@ colab new -s lfm3-g4 --gpu G4          # RTX PRO 6000 Blackwell, 96 GB
 colab exec -s lfm3-g4 -f bootstrap.py  # torch + transformers>=5.20 + repo
 ```
 
+## Corpus (verified 2026-11-08)
+
+| Dataset | Shape | Use |
+|---|---|---|
+| `divelab/opdlm_train_data` | one `opdlm_train.json`, 1.72 GB, 61,816 prompts: math 20,222 / code 21,594 / science 10,000 / chat 10,000 | the prompt source |
+| `nvidia/Llama-Nemotron-Post-Training-Dataset` | `SFT/chat/chat.jsonl`, `RL/instruction_following/*.jsonl` | tool-call and instruction-following quotas |
+| `LiquidAI/structured-extraction` | `showcase.parquet`, `test.parquet` | XML `<tool_call>` / JSON validity |
+
+Stream it (`load_dataset(..., streaming=True)`); the single 1.72 GB JSON is
+memory-heavy to load whole.
+
 ## Phase 0 — teacher cache
 
 ```bash
