@@ -57,13 +57,13 @@ Measured on a G4 (RTX PRO 6000 Blackwell, 96 GB), 2026-11-08:
   `s_phys=4096`, measured with the same smoke the gate failed on.
 - **R2 — Memory.** Peak **< 65 GB** at that setting, activation checkpointing
   allowed.
-- **R3 — Attention path.** Block-diffusion masks run without materializing a
-  dense `[B,1,S,S]` tensor; `dlm_mask_mod`/FlexAttention is the path, with the
-  dense builder retained as a fallback for CPU and for correctness tests.
-- **R4 — Loss path.** Cross-entropy never materializes `[positions, 125033]`
-  as one fp32 block on the accelerator: either `cut_cross_entropy` is installed
-  and used, or the compute falls back to position-chunked accumulation with the
-  same numerics.
+- **R3 — Attention cost.** Attending over the packed row costs no more than
+  attention over an equivalent dense layout without the pack's extra copies,
+  measured as step time; the mechanism is a Key Technical Decision, not a
+  requirement.
+- **R4 — Loss memory.** Cross-entropy never allocates the full
+  `[positions, 125033]` block on the accelerator in one piece, at unchanged
+  numerics.
 - **R5 — Compute per token.** The packed layout supports **K >= 2 mask patterns
   sharing one clean context in a single forward**, each mask isolated from its
   siblings and attending the shared clean context — the MMT construction — with
@@ -234,8 +234,13 @@ trainer ── checkpointed decoder layers ──► hidden [B,S,H]
   block, only the clean prefix and its own). K=2 must reproduce today's tensors
   bit-for-bit.
 - **Test scenarios.** K=2 equals the current layout exactly; K=4 yields four
-  disjoint noisy blocks each attending the clean prefix; supervision count per
-  response token is unchanged as K grows (each token supervised once).
+  masked copies each attending the clean prefix and isolated from its siblings;
+  a response token is drawn into the masked set in Binomial(K, t) copies (not
+  exactly once — exactly-once only holds for the complementary K=2 pair), so the
+  test asserts the per-draw Bernoulli rate rather than an exact count.
+- **Open design point.** K independent draws (the paper's construction) or a
+  complementary partition that keeps exactly-once supervision. The pilot must
+  decide it; K=2 stays complementary either way.
 - **Verification.** `pytest tests/test_collator_packing.py tests/test_masks_and_swa.py -q`.
 
 #### U5. Gate smoke and the 30M-token A/B pilot

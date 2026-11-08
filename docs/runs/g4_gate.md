@@ -21,8 +21,10 @@ build; the two levers cannot be combined as written.
 - **The mask was not the bottleneck.** FlexAttention buys ~10%, and the
   traceback shows it falling back to `sdpa_dense` / `math_attention` rather than
   the flash kernel, so the dense-mask cost is not what dominates the step.
-- **The step runs at ~19–20% of BF16 peak** (≈168 TFLOP per 16,384-token step in
-  1.77 s ≈ 95 TFLOPS against ~500). FP8 giving 0% confirms it is not matmul-bound.
+- **Achieved compute:** the 4-row step does ≈168 TFLOP in 1.77 s ≈ 95 TFLOPS
+  (~19% of BF16 peak); the 1-row flex step does ≈42 TFLOP in 0.757 s ≈ 55 TFLOPS
+  (~11%). Flex is ~10% faster per token; single-row batching costs MFU, so the
+  two effects partly cancel. FP8 giving 0% confirms it is not matmul-bound.
 - **VRAM is fixable, throughput is not, with the levers tried.** mb=1 lands at
   29 GB, well under the 65 GB gate; the throughput gate stays at ~5.4k against 22k.
 - **Implication for the plan's budget:** 300M corpus tokens at 5.4k tok/s is
