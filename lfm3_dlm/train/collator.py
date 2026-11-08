@@ -27,6 +27,8 @@ from ..tokenizer import MASK_TOKEN_ID
 
 IM_END_ID = 124_900
 T_LOW, T_HIGH = 0.35, 0.95
+# t=1.0 rows teach the all-masked corner the sampler's first draft step feeds;
+# long training on [0.35, 0.95] alone drifts away from it (see docs/runs).
 MASK_TOKEN_FRAC = 0.8
 REVEALED_CE_WEIGHT = 0.2
 TOP_K = 16
@@ -69,10 +71,12 @@ class SharedPrefixCollator:
         im_end_id: int = IM_END_ID,
         rng: torch.Generator | None = None,
         n_masks: int = 2,
+        t_high: float = T_HIGH,
     ):
         if n_masks < 2:
             raise ValueError("n_masks must be >= 2 (the complementary pair)")
         self.n_masks = n_masks
+        self.t_high = t_high
         self.s_phys = s_phys
         self.block_size = block_size
         self.mask_token_id = mask_token_id
@@ -184,7 +188,7 @@ class SharedPrefixCollator:
         cad = tid is not None and oid is None
 
         # --- noise level, complementary masks over supervised j in [0, e]
-        t = T_LOW + (T_HIGH - T_LOW) * torch.rand((), generator=g, device=dev).item()
+        t = T_LOW + (self.t_high - T_LOW) * torch.rand((), generator=g, device=dev).item()
         m = torch.rand(e + 1, generator=g, device=dev) < t  # mask set for stream1
 
         # corruption draws
