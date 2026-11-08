@@ -37,6 +37,7 @@ def _chat_pair(example, prompt_field, response_field):
 
 
 def _encode(tokenizer, prompt, response, seq_len):
+    """Prompt ids, plus reference-response ids when one exists."""
     if tokenizer.chat_template:
         prompt_ids = tokenizer.apply_chat_template(
             prompt, add_generation_prompt=True, tokenize=True
@@ -70,6 +71,16 @@ def _topk_chunk(hidden, classifier, chunk):
 
 
 @torch.no_grad()
+@torch.no_grad()
+def teacher_rollout(model, prompt_ids, max_new_tokens, eos_id):
+    """Greedy rollout: the response the teacher itself would write."""
+    ids = torch.tensor([prompt_ids], device=model.device)
+    out = model.generate(input_ids=ids, max_new_tokens=max_new_tokens,
+                         do_sample=False, eos_token_id=eos_id,
+                         pad_token_id=eos_id)
+    return out[0, len(prompt_ids):].tolist()
+
+
 def teacher_rows(model, prompt_ids, response_ids, head_chunk):
     """Top-16 teacher distribution for every response token of one example."""
     ids = torch.tensor([prompt_ids + response_ids], device=model.device)
@@ -94,6 +105,10 @@ def main(argv=None) -> int:
     ap.add_argument("--head-chunk", type=int, default=256)
     ap.add_argument("--fp8", action="store_true", help="torchao PerRow-FP8 teacher")
     ap.add_argument("--limit-examples", type=int, default=0)
+    ap.add_argument("--generate", action="store_true",
+                    help="let the teacher emit the response (the plan's rollout) instead of "
+                         "teacher-forcing a reference field; required for prompt-only rows")
+    ap.add_argument("--max-new-tokens", type=int, default=1024)
     args = ap.parse_args(argv)
 
     from datasets import load_dataset
@@ -137,14 +152,23 @@ def main(argv=None) -> int:
                 continue
             if args.limit_examples and i - done >= args.limit_examples:
                 break
-            response = example[args.response_field]
-            if not str(response).strip() or str(response).strip() == "N/A":
-                continue  # prompt-only rows (the code split) have no reference to force
-            prompt, response = _chat_pair(example, args.prompt_field, args.response_field)
-            enc = _encode(tokenizer, prompt, response, args.seq_len)
+            prompt, reference = _chat_pair(example, args.prompt_field, args.response_field)
+            enc = _encode(tokenizer, prompt, reference, args.seq_len)
             if enc is None:
                 continue
-            prompt_ids, response_ids = enc
+            prompt_ids = enc[0]
+            if args.generate:
+                response_ids = teacher_rollout(
+                    model, prompt_ids, args.max_new_tokens,
+                    tokenizer.eos_token_id or 124_900)
+                if len(response_ids) < 2:
+                    continue
+                if len(prompt_ids) + len(response_ids) > args.seq_len:
+                    continue
+            else:
+                if not str(reference).strip() or str(reference).strip() == "N/A":
+                    continue  # prompt-only row and no rollout requested
+                response_ids = enc[1]
             ids, lps, res = teacher_rows(model, prompt_ids, response_ids, args.head_chunk)
             buf = pack_top16(ids, lps, res).cpu()
             index.write(json.dumps({
