@@ -55,3 +55,29 @@ onto the base checkpoint's frozen MLP/embedding weights.
 
 GPU training is driven by `configs/g4_300m.yaml` and the runbooks in `docs/`;
 it is out of scope for CPU-only environments.
+
+
+## Running the converted model
+
+The conversion run writes an HF directory (`/content/export` on the VM, copied
+to `lfm3-artifacts/` locally). It loads like any LFM3 checkpoint:
+
+```python
+from lfm3_dlm import Lfm3ForCausalLM
+from lfm3_dlm.tokenizer import load_tokenizer
+from lfm3_dlm.sample import generate
+
+model = Lfm3ForCausalLM.from_pretrained("lfm3-artifacts/export").cuda().eval()
+model.config.attention_mode = "causal"          # the sampler's clean stream
+tok = load_tokenizer()
+prompt = tok("Explain why the sky is blue.", return_tensors="pt").input_ids.cuda()
+
+# exact: verified against the model's own top-1 before each commit
+out = generate(model, prompt, mode="ar_trust", max_new_tokens=64, isd_width=4)
+print(tok.decode(out.ids[0, prompt.shape[1]:], skip_special_tokens=True))
+```
+
+`mode="spd"` trades parity for tokens-per-forward; `hard_commit` tunes the
+tradeoff (`generate(..., hard_commit=0.99)`). `scripts/parity_sweep.py` measures
+the real number against AR greedy for any checkpoint, which is the only way to
+know which mode clears a parity bar.
