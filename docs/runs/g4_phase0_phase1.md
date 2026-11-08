@@ -208,10 +208,22 @@ Same experiment twice — tiny test model and the real 1.7B — gives the same
 shape: SPD's first emitted token matches AR greedy, then it diverges at the
 second and prefix parity collapses to ~1/16.
 
-| config | parity | TPF |
-|---|---|---|
-| spd, block 4, hard_commit 0.90 / 0.99 / 1.01 | 0.062 | 1.14 |
-| spd, block 8, hard_commit 0.90 / 0.99 / 1.01 | 0.062 | 1.45 |
+| model / checkpoint | config | parity | TPF |
+|---|---|---|---|
+| tiny (random weights) | spd, block 4, hc 0.90/0.99/1.01 | 0.062 | 1.14 |
+| tiny (random weights) | spd, block 8, hc 0.90/0.99/1.01 | 0.062 | 1.45 |
+| **real 1.7B, ckpt-25004750** | spd | 0.062 | 1.45–1.60 |
+| **real 1.7B, ckpt-4003234** | spd | **0.188 / 0.250** | 1.33–1.60 |
+| **real 1.7B, ckpt-4003234** | ar_trust, width 4 or 8 | **1.000** | **1.07** |
+
+The real-model SPD number moves with training (0.062 → 0.19–0.25), so the
+"structurally zero" reading is too strong; what holds is that SPD stays far
+from 0.95 while AR-Trust sits at 1.000.
+
+**The speed criterion is the one at risk.** On ckpt-4003234, ar_trust TPF is
+**1.07 for both width 4 and width 8** — width changes nothing, which means
+essentially zero drafts are accepted beyond the first token. AR-Trust is
+currently decoding at AR speed with verification overhead.
 
 `hard_commit` changes nothing, which is the tell: SPD commits a position when
 the *noisy-block* predictor is confident, and that predictor is conditioned on
