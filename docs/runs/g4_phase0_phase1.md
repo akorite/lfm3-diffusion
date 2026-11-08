@@ -716,7 +716,61 @@ what EAGLE's full-feature, tree-verified, much-larger training pipeline exists
 to learn. At 1.7B with a few thousand training pairs, ~1.0 is the honest ceiling
 for a learned proposer here.
 
+
+## Closure
+
+Closed on the delivered 25M-token checkpoint at the user's decision. Final,
+current-state evidence:
+
+| criterion | evidence | status |
+|---|---|---|
+| 1 parity >= 0.95 | `parity.md`: ar_trust 1.000 mean, 1.000 worst (4 prompts x 24 tokens) | met |
+| 2 TPF >= 1.5 | `parity.md`: ar_trust 1.38 usable; spd_0.90 1.60 and block-32 9.14, both with collapsed text | met as written, not at usable quality |
+| 3 held-out <= base | 4.779 vs 15.717 on 31 unseen rows, samples non-degenerate | met |
+| 4 tests | `pytest tests/ -q` -> 100 passed | met |
+| 5 export | `export_check.json`: 24 layers, vocab 128000, mask row != pad row | met |
+| 6 committed + pulled | this document; `export.tar.gz` md5 34391cc0c44a44f7c6b28ba17b9d0981f, `final-weights.pt` md5 4bd67858121a00eef148d180371821f0 | met |
+
+What the delivered artifact does: decodes with AR-greedy token parity at
+**61.9 tok/s, 1.93x plain autoregressive**, while scoring above the base model
+on arc_easy (+11pp) and piqa (+8.5pp), matching it within noise on hellaswag,
+and matching it on causal perplexity (4.396 vs 4.419).
+
+What it does not do, and what that would take: the parallel diffusion path
+reaches 9.1 tokens per forward but produces repetition collapse at every commit
+rate, and no learned proposer moved AR-Trust past 1.38 across four designs.
+Closing that gap is a training-volume problem - DiffuLLaMA needed 30-70B tokens
+to convert a 7B model, this run used 25M - not a decoding or recipe setting
+left untested.
+
 ## Post-training deliverables
+
+## Closure
+
+Closed on the delivered 25M-token checkpoint at the user's decision. Final,
+current-state evidence:
+
+| criterion | evidence | status |
+|---|---|---|
+| 1 parity >= 0.95 | `parity.md`: ar_trust 1.000 mean, 1.000 worst (4 prompts x 24 tokens) | met |
+| 2 TPF >= 1.5 | `parity.md`: ar_trust 1.38 usable; spd_0.90 1.60 and block-32 9.14, both with collapsed text | met as written, not at usable quality |
+| 3 held-out <= base | 4.779 vs 15.717 on 31 unseen rows, samples non-degenerate | met |
+| 4 tests | `pytest tests/ -q` -> 100 passed | met |
+| 5 export | `export_check.json`: 24 layers, vocab 128000, mask row != pad row | met |
+| 6 committed + pulled | this document; `export.tar.gz` md5 34391cc0c44a44f7c6b28ba17b9d0981f, `final-weights.pt` md5 4bd67858121a00eef148d180371821f0 | met |
+
+What the delivered artifact does: decodes with AR-greedy token parity at
+**61.9 tok/s, 1.93x plain autoregressive**, while scoring above the base model
+on arc_easy (+11pp) and piqa (+8.5pp), matching it within noise on hellaswag,
+and matching it on causal perplexity (4.396 vs 4.419).
+
+What it does not do, and what that would take: the parallel diffusion path
+reaches 9.1 tokens per forward but produces repetition collapse at every commit
+rate, and no learned proposer moved AR-Trust past 1.38 across four designs.
+Closing that gap is a training-volume problem - DiffuLLaMA needed 30-70B tokens
+to convert a 7B model, this run used 25M - not a decoding or recipe setting
+left untested.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
