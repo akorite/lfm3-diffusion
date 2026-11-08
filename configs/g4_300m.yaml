@@ -6,7 +6,7 @@ s_phys: 4096
 microbatch: 4        # packed rows per forward
 attention_mode: block_diffusion
 use_flex_attention: true
-activation_checkpointing: true
+activation_checkpointing: false   # flex + recompute is broken in torch 2.14
 freeze_mlps: true
 unfreeze_mlp_lr: 1.0e-6   # KTD2 fallback differential if the 50M polish fires
 
