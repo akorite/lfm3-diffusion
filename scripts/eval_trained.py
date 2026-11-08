@@ -44,13 +44,19 @@ def main():
     a = ap.parse_args()
     model = Lfm3ForCausalLM.from_pretrained("LiquidAI/LFM3-1.7B", dtype=torch.bfloat16)
     model.load_state_dict(torch.load(a.weights, map_location="cpu"), strict=False)
+    # the trained bundle is the full model; a silent key mismatch would score
+    # the base model and call it a result, so count what actually loaded
+    sd = torch.load(a.weights, map_location="cpu")
+    loaded = sum(1 for k in sd if k in model.state_dict())
     model = model.cuda()
     tok = load_tokenizer()
     prompts = tok("Explain why the sky is blue.", return_tensors="pt").input_ids.cuda()
     res = generate(model, prompts, mode="ar_trust", max_new_tokens=32, isd_width=4,
                    block_size=8, small_block=4)
+    model.config.attention_mode = "block_diffusion"
     text = tok.decode(res.ids[0, prompts.shape[1]:].tolist(), skip_special_tokens=True)
-    out = {"tokens_per_forward": round(float(res.tpf), 3), "sample": text[:300]}
+    out = {"tokens_per_forward": round(float(res.tpf), 3), "sample": text[:300],
+           "weights_keys_loaded": loaded, "weights_keys_total": len(sd)}
     print("EVAL", json.dumps(out))
     Path(a.out).write_text(json.dumps(out, indent=1))
 
