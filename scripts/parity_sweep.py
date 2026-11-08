@@ -69,6 +69,8 @@ def main(argv=None) -> int:
     ap.add_argument("--small-block", type=int, default=4)
     ap.add_argument("--weights", default=None,
                     help="trained state dict to score; omit to score the base model")
+    ap.add_argument("--draft-head", default=None,
+                    help="trained draft head .pt; replaces the mask-draft proposals")
     ap.add_argument("--out", default="docs/runs/parity_sweep.md")
     args = ap.parse_args(argv)
 
@@ -76,6 +78,14 @@ def main(argv=None) -> int:
     model = Lfm3ForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16)
     if args.weights:
         load_trained(model, args.weights)
+    head = None
+    if args.draft_head:
+        from lfm3_dlm.sample.draft_head import DraftHead
+        ck = torch.load(args.draft_head, map_location="cpu")
+        head = DraftHead(model.config.hidden_size, k=ck["k"]).cuda()
+        head.load_state_dict(ck["head"])
+        head.eval()
+        print(f"draft head k={ck['k']}", flush=True)
     model = model.cuda().eval()
     model.config.attention_mode = "causal"
 
@@ -102,9 +112,12 @@ def main(argv=None) -> int:
     for prompt, text in zip(prompts, texts):
         reference = ar_reference(model, prompt, args.tokens)
         for name, cfg in configs:
+            kw = dict(cfg)
+            if head is not None and cfg.get("mode") == "ar_trust":
+                kw["draft_head"] = head
             res = generate(model, prompt, max_new_tokens=args.tokens,
                            block_size=args.block_size, small_block=args.small_block,
-                           **cfg)
+                           **kw)
             emitted = res.ids[0, prompt.shape[1]:].tolist()[: args.tokens]
             parity, matched = prefix_parity(emitted, reference)
             rows.append({"config": name, "prompt": text[:40], "parity": round(parity, 3),

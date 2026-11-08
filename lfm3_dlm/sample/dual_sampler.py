@@ -52,6 +52,7 @@ class _Row:
     emitted: list = field(default_factory=list)
     committed: int = 0                               # clean KV length (absolute)
     predictors: dict = field(default_factory=dict)   # abs pos -> logit row [V]
+    fed_hidden: dict = field(default_factory=dict)   # abs pos -> hidden state
     prev_top1: dict = field(default_factory=dict)    # abs pos -> last step's argmax
     finished: bool = False
     in_tool: bool = False
@@ -111,13 +112,15 @@ def build_step_mask(
 class _Sampler:
     def __init__(self, model, input_ids, block_size, small_block, mode,
                  isd_width, draft_fn, forced_tokens, eos_ids, step_hook,
-                 hard_commit=_HARD_COMMIT):
+                 hard_commit=_HARD_COMMIT, draft_head=None):
         self.model = model
         self.cfg = model.config
         self.block = block_size
         self.small = small_block
         self.isd_width = isd_width
         self.draft_fn = draft_fn
+        self.draft_head = draft_head
+        self._last_hidden = None
         self.forced = list(forced_tokens or [])
         self.eos_ids = set(eos_ids)
         self.step_hook = step_hook
@@ -279,9 +282,11 @@ class _Sampler:
 
         self._set_conv_states()
         base_idx = self.cache.appended
-        out = self.model(inputs_embeds=embeds, position_ids=q_pos,
-                         attention_mask=masks,
-                         past_key_values=self.cache.cache, use_cache=True)
+        out = self.model.model(inputs_embeds=embeds, position_ids=q_pos,
+                               attention_mask=masks,
+                               past_key_values=self.cache.cache, use_cache=True)
+        hidden = out.last_hidden_state
+        out_logits = self.model.lm_head(hidden)
         self.n_forwards += 1
         self.cache.appended += s_max
         for r in range(self.B):
@@ -295,7 +300,16 @@ class _Sampler:
                         torch.full_like(fed_pos, -1)),
         ], dim=1)
 
-        logits = out.logits[:, :, :OUTPUT_VOCAB]
+        logits = out_logits[:, :, :OUTPUT_VOCAB]
+        self._last_hidden = hidden.detach()
+        for r, feed in enumerate(feeds):
+            fh = self.rows[r].fed_hidden
+            for j, (pos, kind, _b, _t) in enumerate(feed):
+                if pos >= 0 and kind in ("clean", "noisy"):
+                    fh[pos] = hidden[r, j].detach()
+            if len(fh) > 4096:
+                for pos in sorted(fh)[:2048]:
+                    fh.pop(pos, None)
         # shifted predictors: logits@fed slot pos predict the token at pos+1
         for r, feed in enumerate(feeds):
             for j, (pos, _k, _b, _t) in enumerate(feed):
@@ -444,6 +458,10 @@ class _Sampler:
 
     # -- AR-Trust ---------------------------------------------------------------
 
+    def _head_input(self, r, C):
+        """Hidden state at logical position `C-1`, which predicts the token at C."""
+        return self.rows[r].fed_hidden.get(C - 1)
+
     def _run_ar(self, limit):
         rows = [r for r in range(self.B)
                 if not self.rows[r].finished and self.row_mode[r] == "ar"
@@ -487,6 +505,11 @@ class _Sampler:
             C = row.committed
             if self.draft_fn is not None:
                 cand[r] = list(self.draft_fn(r, C - self.P, row.emitted))[:k]
+            elif self.draft_head is not None and self._head_input(r, C) is not None:
+                with torch.no_grad():
+                    lg = self.draft_head(self._head_input(r, C),
+                                         self.model.lm_head)
+                cand[r] = [int(lg[j, :OUTPUT_VOCAB].argmax()) for j in range(k)]
             else:
                 # mask-draft proposals: predictor[p] is conditioned on the
                 # real prefix + MASKs, i.e. exactly the draft distribution
@@ -553,7 +576,7 @@ class _Sampler:
 def generate(model, input_ids, mode="hybrid_auto", max_new_tokens=64,
              block_size=32, small_block=8, isd_width=6, draft_fn=None,
              forced_tokens=None, eos_token_ids=None, step_hook=None,
-             hard_commit=_HARD_COMMIT):
+             hard_commit=_HARD_COMMIT, draft_head=None):
     """Dual-mode generation entry point (CPU-safe, no CUDA dependency).
 
     `mode` is `"spd"`, `"ar_trust"` or `"hybrid_auto"` (SPD that switches to
@@ -574,7 +597,7 @@ def generate(model, input_ids, mode="hybrid_auto", max_new_tokens=64,
         eos = eos_token_ids if eos_token_ids is not None else (IM_END_ID,)
         sampler = _Sampler(model, input_ids, block_size, small_block, mode,
                            isd_width, draft_fn, forced_tokens, eos, step_hook,
-                           hard_commit=hard_commit)
+                           hard_commit=hard_commit, draft_head=draft_head)
         sampler._input_ids = input_ids
         try:
             return sampler.run(max_new_tokens)
