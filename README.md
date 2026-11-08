@@ -53,8 +53,8 @@ python3 -m lfm3_dlm.convert merge <base-dir> <trained-dir> <export-dir>
 `merge` takes mixer/norm weights from a trained snapshot and re-applies them
 onto the base checkpoint's frozen MLP/embedding weights.
 
-GPU training is driven by `configs/g4_300m.yaml` and the runbooks in `docs/`;
-it is out of scope for CPU-only environments.
+GPU training is driven by `configs/g4_run.yaml` (the delivered schedule) and the
+runbooks in `docs/`; it is out of scope for CPU-only environments.
 
 
 ## Running the converted model
@@ -81,3 +81,18 @@ print(tok.decode(out.ids[0, prompt.shape[1]:], skip_special_tokens=True))
 tradeoff (`generate(..., hard_commit=0.99)`). `scripts/parity_sweep.py` measures
 the real number against AR greedy for any checkpoint, which is the only way to
 know which mode clears a parity bar.
+
+## Measured (shipped checkpoint)
+
+| mode | tokens/forward | tok/s | vs plain AR | parity |
+|---|---|---|---|---|
+| plain AR greedy | 1.00 | 32.2 | 1.00x | — |
+| `ar_trust`, width 4 | 1.38 | **61.9** | **1.93x** | **1.000** |
+| `spd`, block 8 / small 4 | 1.73 | 94.0 | 2.92x | 0.167 |
+| `spd`, block 32 / small 32 | 9.14 | 195.3 | 6.06x | 0.042 |
+
+`ar_trust` is the usable mode. The `spd` rows buy tokens per forward and lose
+the text: at every commit rate tested the output collapses into repetition, so
+treat them as throughput measurements rather than shippable settings. Quality
+evidence (benchmarks, held-out loss, causal perplexity) and the full experiment
+record are in `docs/runs/g4_phase0_phase1.md`.
