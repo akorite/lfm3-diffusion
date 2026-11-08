@@ -37,9 +37,15 @@ def _chat_pair(example, prompt_field, response_field):
 
 
 def _encode(tokenizer, prompt, response, seq_len):
-    prompt_ids = tokenizer.apply_chat_template(
-        prompt, add_generation_prompt=True, tokenize=True
-    )
+    if tokenizer.chat_template:
+        prompt_ids = tokenizer.apply_chat_template(
+            prompt, add_generation_prompt=True, tokenize=True
+        )
+    else:
+        # the vendored tokenizer assets carry no chat template: fall back to
+        # the plain prompt text so teacher forcing still works
+        text = prompt[0]["content"] if isinstance(prompt, list) else str(prompt)
+        prompt_ids = tokenizer.encode(text + "\n", add_special_tokens=True)
     response_ids = tokenizer.encode(response, add_special_tokens=False)
     response_ids = response_ids + [tokenizer.eos_token_id or 124_900]
     if len(prompt_ids) + len(response_ids) > seq_len:
