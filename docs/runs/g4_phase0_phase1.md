@@ -190,11 +190,17 @@ Two things this settles early:
 
 ## Live status (VM clock 16:38 UTC, session up 3h22m)
 
-- training step **1,491 / 7,000** (21%), loss deciles 54.8 → 19.0 (last eighth))
-- throughput **4,931 physical tok/s** after killing a duplicate trainer that
+- training step **1,641 / 7,000** (23%), loss deciles 57.0 → 27.7)
+- throughput **5,084 physical tok/s** after killing a duplicate trainer that
   was sharing the GPU (the interleaved step numbers were the tell)
 - one checkpoint on disk; balance **183.32 CU** (floor 50)
 - projected finish ~21:00 UTC, Colab cutoff 01:16 UTC
+
+**Endgame pre-flight:** all ten run scripts import cleanly
+(`spd_sweep`, `parity_sweep`, `heldout_eval`, `eval_trained`, `finish_run`,
+`summarize_run`, `export_trained`, `train_g4`, `build_teacher_cache`,
+`bench_training_step`), so the final stage should fail on measurements rather
+than on an import typo.
 
 ## Post-training deliverables
 
