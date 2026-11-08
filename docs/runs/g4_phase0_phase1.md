@@ -202,6 +202,28 @@ Two things this settles early:
 `bench_training_step`), so the final stage should fail on measurements rather
 than on an import typo.
 
+## Why SPD cannot meet a parity bar (measured, tiny model + real model)
+
+Same experiment twice — tiny test model and the real 1.7B — gives the same
+shape: SPD's first emitted token matches AR greedy, then it diverges at the
+second and prefix parity collapses to ~1/16.
+
+| config | parity | TPF |
+|---|---|---|
+| spd, block 4, hard_commit 0.90 / 0.99 / 1.01 | 0.062 | 1.14 |
+| spd, block 8, hard_commit 0.90 / 0.99 / 1.01 | 0.062 | 1.45 |
+
+`hard_commit` changes nothing, which is the tell: SPD commits a position when
+the *noisy-block* predictor is confident, and that predictor is conditioned on
+a partially denoised block, not on the causal prefix AR greedy uses. It is a
+different decoding algorithm, not a faster AR — so "SPD at 95% AR parity" is
+not a tuning problem, it is the wrong frame.
+
+The parity-carrying path is AR-Trust: drafts are accepted only where the
+model's own top-1 agrees, so parity is 1.000 by construction. Its speed is set
+by **draft acceptance**, which is why the endgame sweeps `isd_width` 2/4/8
+rather than any SPD knob.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
