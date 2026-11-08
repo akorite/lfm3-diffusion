@@ -1,0 +1,34 @@
+# Phase-1 single-session G4 conversion run: 300M corpus tokens (2 epochs
+# over the 150M-token self-distilled teacher cache).
+
+seed: 0
+s_phys: 4096
+microbatch: 4
+freeze_mlps: true
+unfreeze_mlp_lr: 1.0e-6   # KTD2 fallback differential if the 50M polish fires
+
+# LR: 5e-5 -> 2e-6 cosine
+lr_max: 5.0e-5
+lr_min: 2.0e-6
+w_ar: 1.0
+ce_weight: 0.2
+
+# Warmup covers the 4->8->16->32 block-growth window (first 40M tokens).
+warmup_tokens: 40_000_000
+block_warmup_tokens: 40_000_000
+block_stages: [4, 8, 16, 32]
+block_size: 32
+
+# Step budget: 300M corpus tokens at ~4096 corpus tokens per packed row.
+total_tokens: 300_000_000
+max_steps: 73242
+warmup_steps: 1000
+
+# Phase boundary: teacher-cache corruption for 0-120M tokens, then
+# 50%-step detached DMax OPUT for 120M-300M.
+phase1_boundary_tokens: 120_000_000
+oput_ratio: 0.5
+
+# Resumable checkpointing every 75M corpus tokens.
+checkpoint_interval_tokens: 75_000_000
+checkpoint_dir: checkpoints/g4_300m

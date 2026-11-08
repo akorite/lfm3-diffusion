@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+checkpoints/
+*.safetensors
+hf_cache/
+.ipynb_checkpoints/
