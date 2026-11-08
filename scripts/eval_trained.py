@@ -50,12 +50,20 @@ def main():
     loaded = sum(1 for k in sd if k in model.state_dict())
     model = model.cuda()
     tok = load_tokenizer()
-    prompts = tok("Explain why the sky is blue.", return_tensors="pt").input_ids.cuda()
-    res = generate(model, prompts, mode="ar_trust", max_new_tokens=32, isd_width=4,
-                   block_size=8, small_block=4)
-    model.config.attention_mode = "block_diffusion"
-    text = tok.decode(res.ids[0, prompts.shape[1]:].tolist(), skip_special_tokens=True)
-    out = {"tokens_per_forward": round(float(res.tpf), 3), "sample": text[:300],
+    texts = [
+        "Explain why the sky is blue.",
+        "Write a Python function that reverses a linked list.",
+        "Give one reason a database index speeds up reads.",
+    ]
+    samples, tpfs = [], []
+    for text_prompt in texts:
+        ids = tok(text_prompt, return_tensors="pt").input_ids.cuda()
+        res = generate(model, ids, mode="ar_trust", max_new_tokens=48, isd_width=4,
+                       block_size=8, small_block=4)
+        samples.append(tok.decode(res.ids[0, ids.shape[1]:].tolist(),
+                                  skip_special_tokens=True)[:400])
+        tpfs.append(round(float(res.tpf), 3))
+    out = {"tokens_per_forward": tpfs, "samples": samples,
            "weights_keys_loaded": loaded, "weights_keys_total": len(sd)}
     cache_dir = Path(a.cache)
     if (cache_dir / "index.jsonl").exists():
