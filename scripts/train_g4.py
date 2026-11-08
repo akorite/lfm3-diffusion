@@ -28,8 +28,12 @@ from lfm3_dlm.train.trainer import DLMTrainer, cosine_lr
 class TeacherCache:
     """Random-access reader over the Phase-0 shards + index."""
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, s_phys: int = 4096,
+                 block_size: int = 32, n_masks: int = 2):
         self.root = Path(root)
+        self.s_phys = s_phys
+        self.block_size = block_size
+        self.n_masks = n_masks
         self.entries = [json.loads(line) for line in (self.root / "index.jsonl").open()]
         self._shards: dict[int, np.ndarray] = {}
 
@@ -44,7 +48,10 @@ class TeacherCache:
 
     def example(self, i: int) -> dict | None:
         e = self.entries[i]
-        if e.get("skip"):
+        # a cache built before the packing bound was enforced can hold rows the
+        # collator refuses; skip them instead of crashing the run
+        r = max(self.block_size, -(-e["R"] // self.block_size) * self.block_size)
+        if e["P"] + (1 + self.n_masks) * r > self.s_phys:
             return None
         rows = self._shard(e["shard"])[e["offset"]: e["offset"] + e["R"]]
         ids, lps, res = unpack_top16(torch.from_numpy(rows.copy()))
@@ -128,7 +135,8 @@ def main(argv=None) -> int:
         # the LR schedule must anneal to lr_min at the step we actually stop
         cfg["max_steps"] = args.max_steps
     trainer = DLMTrainer(model, cfg, device=device)
-    cache = TeacherCache(args.cache)
+    cache = TeacherCache(args.cache, cfg.get("s_phys", 4096),
+                         cfg.get("block_size", 32), cfg.get("n_masks", 2))
     corpus = (corpus_examples(args.dataset, args.split, args.prompt_field,
                               args.response_field, tokenizer,
                               cfg.get("s_phys", 4096), 64, args.dataset_config,
