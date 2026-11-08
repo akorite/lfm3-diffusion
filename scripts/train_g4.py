@@ -56,12 +56,14 @@ class TeacherCache:
 
 
 def corpus_examples(dataset_id, split, prompt_field, response_field, tokenizer,
-                    seq_len, take):
+                    seq_len, take, config_name=None):
     """Teacherless examples: the collator supervises them with plain CE."""
     from datasets import load_dataset
 
     out = []
-    for example in load_dataset(dataset_id, split=split, streaming=True):
+    ds = (load_dataset(dataset_id, config_name, split=split, streaming=True)
+          if config_name else load_dataset(dataset_id, split=split, streaming=True))
+    for example in ds:
         prompt = example[prompt_field]
         prompt_msgs = prompt if isinstance(prompt, list) else [
             {"role": "user", "content": prompt}]
@@ -82,6 +84,7 @@ def main(argv=None) -> int:
     ap.add_argument("--cache", required=True)
     ap.add_argument("--dataset", default=None, help="raw corpus for teacherless rows")
     ap.add_argument("--split", default="train")
+    ap.add_argument("--dataset-config", default=None)
     ap.add_argument("--prompt-field", default="prompt")
     ap.add_argument("--response-field", default="response")
     ap.add_argument("--model", default="LiquidAI/LFM3-1.7B")
@@ -104,7 +107,7 @@ def main(argv=None) -> int:
     cache = TeacherCache(args.cache)
     corpus = (corpus_examples(args.dataset, args.split, args.prompt_field,
                               args.response_field, tokenizer,
-                              cfg.get("s_phys", 4096), 64)
+                              cfg.get("s_phys", 4096), 64, args.dataset_config)
               if args.dataset else [])
 
     rng = torch.Generator().manual_seed(cfg.get("seed", 0))
