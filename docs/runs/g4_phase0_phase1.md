@@ -75,3 +75,23 @@ python scripts/train_g4.py --cache /content/cache --dataset divelab/opdlm_train_
 - `merge_mixer_state` → BF16 export; `MODEL_CARD.md` updated with the honest
   numbers.
 - Held-out loss / sample: _pending_
+
+## Token parity (`>95%` goal)
+
+Two decode paths exist and they trade speed for exactness:
+
+| path | parity vs AR greedy | how |
+|---|---|---|
+| `ar_trust` | exact by construction | every drafted block is verified against the model's own top-1 before commits |
+| `spd` | measured, threshold-dependent | parallel commits at confidence `> hard_commit` |
+| `hybrid_auto` | `ar_trust` inside `<tool_call>`, `spd` elsewhere | routing on the tool-call delimiters |
+
+`scripts/parity_sweep.py` measures the real number (no forced tokens: the
+sampler runs freely and its emitted prefix is compared to the AR greedy
+reference). `hard_commit` is now a `generate(..., hard_commit=...)` knob, so the
+SPD parity/speed tradeoff is tunable per call rather than baked into a constant.
+
+Expected shape: `ar_trust` at 1.000 parity with TPF ~2–3; `spd` at high TPF with
+parity that rises as `hard_commit` → 1.0 (a threshold of 1.0 degenerates to
+one-token-at-a-time commits, i.e. AR). The sweep records all rows, so the
+"≥95% parity at the best TPF" point is read off the table rather than assumed.
