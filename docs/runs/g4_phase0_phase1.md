@@ -219,6 +219,15 @@ a partially denoised block, not on the causal prefix AR greedy uses. It is a
 different decoding algorithm, not a faster AR — so "SPD at 95% AR parity" is
 not a tuning problem, it is the wrong frame.
 
+**Caveat on that evidence.** The tiny-model arm is weak on its own — a
+random-weight model's AR reference is arbitrary, so any decode path diverges
+from it. The real 1.7B measurement at the 25M-token checkpoint is the stronger
+data point (parity 0.062, TPF 1.45–1.60 at isd_width 4), and it agrees. But
+that checkpoint was ~2,700 of 7,000 steps in, so a converged model could commit
+the AR argmax far more often by chance. The endgame sweep over
+`hard_commit` × block size is what decides; this note records the prior, not a
+verdict.
+
 The parity-carrying path is AR-Trust: drafts are accepted only where the
 model's own top-1 agrees, so parity is 1.000 by construction. Its speed is set
 by **draft acceptance**, which is why the endgame sweeps `isd_width` 2/4/8
