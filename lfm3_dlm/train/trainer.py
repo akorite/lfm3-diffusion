@@ -153,7 +153,7 @@ class DLMTrainer:
     def _oput_corrupt(self, examples: list[dict]) -> list[dict]:
         """Attach the student's own top-1 per response position as the
         corruption source (`oput_ids`) for the packed collator."""
-        classifier = self.model.get_output_classifier()
+        classifier = self.model.get_output_classifier().float()
         out_examples = []
         for ex in examples:
             prompt = torch.as_tensor(ex["prompt_ids"], dtype=torch.long, device=self.device)

@@ -229,3 +229,12 @@ def test_step_mask_restricts_noisy_queries_to_earlier_clean_blocks():
     assert not allowed[0, 5]
     # a clean query sees the same-block clean slot causally
     assert allowed[2, 4]
+
+
+def test_batched_decoding_is_refused_for_sliding_models():
+    """One shared sliding-window ring cannot hold each row's own window, so a
+    lagging row would lose context silently; the sampler refuses instead."""
+    model = make_model(["conv", "sliding_attention"], window=8)
+    with pytest.raises(ValueError, match="sliding-window ring"):
+        generate(model, torch.randint(0, 100_000, (2, 6)), mode="ar_trust",
+                 max_new_tokens=4)

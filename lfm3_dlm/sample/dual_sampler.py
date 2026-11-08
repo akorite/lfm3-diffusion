@@ -93,10 +93,12 @@ def build_step_mask(
     cache_ok = (kl >= 0) & (kl < committed[:, None, None])
     visible = (cache_ok | fed_ok) & (kl <= ql)
     valid_q = q_valid[:, :, None]
+    earlier_block = kv_block[:, None, :] < q_block[:, :, None]
     own_noisy_block = qn & kn & same_block & fed_ok
-    allowed = valid_q & (
-        (~qn & visible) | (qn & visible & (kv_block[:, None, :] < q_block[:, :, None]))
-    ) | (valid_q & own_noisy_block)
+    # earlier context is clean by rule: fed noisy slots belong to the current
+    # block only, matching masks.py's earlier_clean
+    earlier_context = (cache_ok | (fed_ok & ~kn)) & earlier_block
+    allowed = valid_q & ((~qn & visible) | (qn & earlier_context)) | (valid_q & own_noisy_block)
     if layer_type == "sliding_attention" and sliding_window is not None:
         allowed &= ((ql - kl) < sliding_window) | own_noisy_block
     return additive_mask(allowed, dtype).unsqueeze(1)

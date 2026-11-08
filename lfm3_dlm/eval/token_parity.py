@@ -63,25 +63,31 @@ def _collect_step_stats(generate_fn, model, prompt, continuation, mode,
     """
     accepted_per_round: list[int] = []
     seen_emitted = [0]
-    predictor_rows: list[torch.Tensor] = []
+    pred_by_pos: dict[int, torch.Tensor] = {}
 
     def hook(r, phase, feeds, row):
         delta = len(row.emitted) - seen_emitted[0]
         if delta > 0:
             accepted_per_round.append(delta)
             seen_emitted[0] = len(row.emitted)
-        for pos in list(row.predictors):
-            if row.predictors[pos] is not None:
-                predictor_rows.append(row.predictors[pos])
+        for pos, logits in row.predictors.items():
+            if logits is not None:
+                pred_by_pos[pos] = logits
 
     t0 = time.perf_counter()
     res = generate_fn(model, prompt, mode=mode,
                       max_new_tokens=len(continuation),
                       isd_width=isd_width, draft_fn=draft_fn,
                       forced_tokens=list(continuation),
-                      eos_token_ids=(-1,))   # never terminate early
+                      eos_token_ids=(-1,),   # never terminate early
+                      step_hook=hook)
     elapsed = time.perf_counter() - t0
     emitted = res.ids[0, prompt.shape[1]:].tolist()[: len(continuation)]
+    # predictor at absolute position q predicts the token at q, so the
+    # replay's predictions start one past the prompt
+    first = prompt.shape[1]
+    predictor_rows = [pred_by_pos[p] for p in range(first, first + len(continuation))
+                      if p in pred_by_pos]
     return res, emitted, accepted_per_round, predictor_rows, elapsed
 
 

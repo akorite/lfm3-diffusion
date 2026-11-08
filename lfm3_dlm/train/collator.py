@@ -108,7 +108,6 @@ class SharedPrefixCollator:
         t_field = torch.zeros(S, device=dev)
 
         pos = 0
-        d = 0
         i = start
         while i < len(examples):
             ex = examples[i]
@@ -128,7 +127,6 @@ class SharedPrefixCollator:
                 teacher_ids, teacher_logprobs, teacher_residual, t_field,
             )
             pos += need
-            d += 1
             i += 1
         return (
             PackedSequence(

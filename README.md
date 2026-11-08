@@ -27,6 +27,14 @@ verification (used automatically inside `<tool_call>` spans).
 - `tests/` — CPU test suite (no CUDA required).
 - `configs/` — GPU training configs (`g4_300m.yaml`); runbooks live under `docs/`.
 
+## Decoding limits
+
+`lfm3_dlm.sample.generate` keeps one column per row and a single shared
+sliding-window ring, so batched decoding is supported only for models
+without sliding-attention layers; `B > 1` raises on a sliding model
+instead of silently serving a lagging row the wrong window. Run those one
+sequence at a time until per-row KV lands.
+
 ## Tests
 
 ```bash
