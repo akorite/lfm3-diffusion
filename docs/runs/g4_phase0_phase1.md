@@ -467,6 +467,23 @@ Two silent no-ops worth recording, both caught before any compute was spent:
 loop exit immediately with `done: 25004750 tokens, 2704 steps`. The leg runs
 with `max_steps: 3700` and `total_tokens: 40M`.
 
+
+### Endgame scripts: what each one now owns
+
+| script | question it answers |
+|---|---|
+| `parity_sweep.py` | does AR-Trust emit the same tokens as AR greedy, at what tokens-per-forward |
+| `spd_sweep.py` | the SPD comparison, on the same weights and prompts |
+| `heldout_eval.py` | diffusion-objective loss on rows the cache never saw (trained and base) |
+| `causal_ppl.py` | capability drift: plain next-token loss, trained vs base |
+| `assert_export.py` | does the exported directory still load as a 24-layer LFM3 with a live mask row |
+| `rl_accept.py` | the acceptance post-phase, kept as a documented negative |
+| `endgame.sh` | runs all of the above in one pass and writes the JSON the report cites |
+
+`parity_sweep`/`spd_sweep` accept either a plain state dict or a trainer
+`checkpoint.pt` bundle and refuse a zero-tensor load, so a mistyped path can no
+longer silently measure the base model.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
