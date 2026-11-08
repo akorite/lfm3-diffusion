@@ -75,7 +75,12 @@ FP8 and NVFP4 exports are not part of this checkpoint; only BF16 ships.
 ```python
 from lfm3_dlm.sample import generate
 
-out = generate(model, tokenizer, prompt, mode="spd", block_size=32, small_block=8)
+# the usable mode: exact AR-greedy parity, 1.93x over plain AR
+out = generate(model, prompt, mode="ar_trust", max_new_tokens=64, isd_width=4)
+
+# throughput experiments only: fast, but the text degenerates on this checkpoint
+out = generate(model, prompt, mode="spd", block_size=8, small_block=4,
+               hard_commit=0.90, max_new_tokens=64)
 ```
 
 ## Evaluation
