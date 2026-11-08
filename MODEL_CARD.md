@@ -74,3 +74,22 @@ out = generate(model, tokenizer, prompt, mode="spd", block_size=32, small_block=
 
 See `docs/runs/final_eval.md` for the per-family benchmark record
 (math, code, IFEval, BFCL/XML) across all three checkpoint formats.
+
+
+## Training status
+
+This card describes the conversion recipe. The checkpoint shipped from this
+repo is produced by `scripts/run_pipeline.py` on a single G4 and its exact
+numbers are recorded in `docs/runs/g4_phase0_phase1.md`:
+
+- teacher: `LiquidAI/LFM3-1.7B` (BF16; FP8 measured neutral)
+- corpus: `nvidia/Llama-Nemotron-Post-Training-Dataset`, `SFT/chat`
+- cache: Top-16 teacher distributions at 68 B/token, length-bucketed batches
+- student: 1.7B, frozen MLPs + mask-row-only embedding, FlexAttention block
+  masks, chunked classifier LSE
+- decode: `AR-Trust` verification is exact by construction; `SPD` parity is
+  measured, not assumed (`scripts/parity_sweep.py`)
+
+The token counts and losses below the recipe in this card describe the
+*planned* 300M-token run; the shipped checkpoint is sized to the available
+compute and the run record states the difference.
