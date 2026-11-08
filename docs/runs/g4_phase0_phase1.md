@@ -2,10 +2,26 @@
 
 Status: in progress. Numbers below are filled from the live run.
 
-## Budget
+## Budget and sizing
 
-- Balance at start: see `colab usage` (224 CU after the gate experiments).
-- Sized to finish inside the balance with room for export + eval.
+Balance when the run started: **216.79 CU** after the gate experiments.
+
+Teacher throughput measured on the G4 (`divelab/opdlm_train_data`, greedy
+rollout, `max_new_tokens=128`):
+
+| rollout batch | cached tokens/s |
+|---|---|
+| 1 (per-example loop) | 68 |
+| 16 | 444 |
+| 32–64 | ~700 |
+
+At 700 tok/s a 6M-token cache costs ~2.4 h (~24 CU). Phase 1 at 5.1k corpus
+tok/s for 12,200 steps (100M corpus tokens) costs ~5.4 h (~54 CU). Export and
+eval add ~0.5 h. Planned total ~8.5 h ≈ 85 CU, leaving >120 CU of headroom.
+
+Deliberate deviation from the plan's 150M teacher / 300M corpus: those need
+~94 h of teacher rollout alone at the measured rate, which the balance cannot
+carry. The run is sized to finish rather than to match the plan's token count.
 
 ## Phase 0 — teacher cache
 
