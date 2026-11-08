@@ -152,7 +152,13 @@ When training finishes the chain produces, in order:
 1. `/content/run3/final-ckpt` (resumable) and `/content/run3/final-weights.pt`
 2. `/content/export` — BF16 HF directory via `merge_mixer_state`, with the
    **trained** mask row and untouched frozen MLPs
-3. `/content/eval.json` — a sample plus the number of weight keys that loaded
+3. `/content/eval.json` — three generations with their TPF, the number of
+   weight keys that loaded, and a held-out loss computed over cache rows
+
+**Honest limit on that loss:** the Nemotron chat split ships as a single file,
+so the "held-out" rows come from the same distribution the model trained on —
+it measures fit, not generalisation. The generation samples and the AR-parity
+number are the claims that do not depend on that split.
 
 ### Why `ar_trust` is exact
 
