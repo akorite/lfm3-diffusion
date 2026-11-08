@@ -191,6 +191,7 @@ def main(argv=None) -> int:
             "loss": loss, "lr": lr,
             "tok_s": trainer.tokens_seen / max(time.perf_counter() - t0, 1e-9),
             "block_size": trainer.collator.block_size,
+            **{k: round(v, 3) for k, v in getattr(trainer, "last_terms", {}).items()},
             "oput": trainer._oput_due(),
         }
         metrics.write(json.dumps(row) + "\n")

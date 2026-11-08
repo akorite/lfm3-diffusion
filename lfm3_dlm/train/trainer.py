@@ -47,6 +47,7 @@ class DLMTrainer:
         self.model = model.to(device)
         self.device = device
         self.config = config
+        self.last_terms: dict = {"l_cad": 0.0, "l_ce": 0.0, "l_ar": 0.0}
         self.tokens_seen = 0
         self.step = 0
         mode = config.get("attention_mode", "block_diffusion")
@@ -121,6 +122,7 @@ class DLMTrainer:
         rows = [r.to(self.device) for r in self.collator(examples)]
         checkpointed = bool(cfg.get("activation_checkpointing", False))
         total_loss = 0.0
+        self.last_terms = {"l_cad": 0.0, "l_ce": 0.0, "l_ar": 0.0}
         self.optimizer.zero_grad(set_to_none=True)
         # one forward per microbatch of packed rows: the rows share a fixed
         # s_phys, and batching them is what keeps the GPU fed
@@ -141,6 +143,9 @@ class DLMTrainer:
                 )
                 chunk_losses.append(res.loss)
                 total_loss += float(res.loss.detach())
+                self.last_terms["l_cad"] += float(res.l_cad)
+                self.last_terms["l_ce"] += float(res.l_ce)
+                self.last_terms["l_ar"] += float(res.l_ar)
                 self.tokens_seen += int((row.stream_id != 3).sum())
             # one backward per microbatch: the rows share this forward's graph
             torch.stack(chunk_losses).sum().backward()
