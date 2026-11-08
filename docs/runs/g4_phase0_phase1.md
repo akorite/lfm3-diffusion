@@ -188,6 +188,14 @@ Two things this settles early:
   SPD needs the converged checkpoint and a block-size sweep before it is worth
   offering as the fast path.
 
+## Live status (VM clock 16:38 UTC, session up 3h22m)
+
+- training step **700 / 7,000** (10%), loss deciles 64.4 → 34.7
+- throughput **3,562 physical tok/s** after killing a duplicate trainer that
+  was sharing the GPU (the interleaved step numbers were the tell)
+- one checkpoint on disk; balance **183.32 CU** (floor 50)
+- projected finish ~21:00 UTC, Colab cutoff 01:16 UTC
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
