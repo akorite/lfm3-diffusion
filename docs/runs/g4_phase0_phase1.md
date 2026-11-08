@@ -579,6 +579,48 @@ Both large files were pulled in 200 MB parts: `colab download` buffers a whole
 file in memory, and this host has 7 GB, so a single 2.6 GB or 5.4 GB transfer
 fights the OOM killer. `REASSEMBLE.md` records the checksums.
 
+
+## Why this model decodes at 1.38, and what the literature says to do about it
+
+Four measurements say the cap is not a decode knob: block geometry is flat (five
+settings identical), draft width saturates at 4, longer training regressed
+(25M -> 50M: 1.38 -> 1.20), and SPD reaches 9 tokens/forward while the text
+collapses at every commit rate. The published record explains all four.
+
+**Parallel decoding degrades quality by construction, and the fix is
+confidence-gating** (Fast-dLLM, arXiv 2505.22618). Their diagnosis: committing
+several tokens per step assumes conditional independence between those
+positions, which breaks token dependencies; their fix is to decode only
+positions above a confidence threshold. That is exactly the rule this sampler
+already implements (`hard_commit` + top-1 stability). On LLaDA/Dream-class
+models it buys up to 27.6x throughput with minimal accuracy loss; here the same
+rule buys speed and loses the text, because the underlying block prediction is
+not good enough to gate on.
+
+**Scale is the reason.** Adapting an AR model to diffusion took DiffuLLaMA
+30B-70B continual-pretraining tokens for a 7B model (ICLR 2025, arXiv
+2410.17891); LLaDA-8B used 2.3T from scratch. This conversion used 25M tokens -
+roughly three orders of magnitude below the smallest published conversion
+budget. A 25M-token conversion behaving like a weak denoiser is the expected
+outcome, not a bug in the sampler.
+
+**The affordable path to a real speed win is a trained draft head, not a better
+denoiser.** Medusa and EAGLE reach 2.3-2.8x over plain AR with *zero* quality
+degradation because the target model still verifies every token; the draft head
+only proposes. Our AR-Trust already has the verify path and a `draft_fn` hook -
+the weak part is the proposer (the mask-draft, which the denoiser supplies).
+Swapping in a small trained multi-token head targets the measured bottleneck
+directly, at a training cost of GPU-hours rather than billions of tokens.
+
+Ranked course of action:
+
+1. Train a Medusa/EAGLE-style draft head on the frozen model, plug it into
+   `draft_fn`. Expected TPF 2.0-2.8 at parity 1.000, cost ~1-2 GPU-hours.
+2. Leave the diffusion path as a measured ceiling (9.1 tokens/forward,
+   incoherent) until the conversion can be funded at DiffuLLaMA scale.
+3. Do not add supervised steps to the current recipe: 25M -> 50M already
+   regressed on both axes.
+
 ## Post-training deliverables
 
 When training finishes the chain produces, in order:
