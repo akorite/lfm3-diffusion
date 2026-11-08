@@ -653,6 +653,7 @@ so parity cannot move.
 |---|---|---|
 | base model, mask-draft (shipped behaviour) | 1.000 | **1.07** |
 | base model, draft head, 600 steps, corpus targets | 1.000 | 0.93 |
+| base model, draft head, 4,000 steps, model's own argmax targets | 1.000 | **0.91** |
 
 So the first head proposes *worse* tokens than the denoiser's mask-draft. Two
 reasons were worth separating, and the second one matters:
@@ -663,8 +664,18 @@ reasons were worth separating, and the second one matters:
    to predict something verification will never accept.
 
 The second point is fixed in `scripts/train_draft.py` (targets are now the
-model's own next-token argmax at each position); a 4,000-step run with that
-target was launched to see whether the head clears the mask-draft at all.
+model's own next-token argmax at each position), and the 4,000-step run took the
+loss from 5.4 to 3.4 nats - while TPF went 0.93 -> 0.91. Better loss, no speed:
+the head learned the teacher-forced target and still proposes tokens the
+verifier rejects.
+
+That is the third proposer attempt to fail the same way (mask-draft
+distillation, then this head twice), and the reason is now unambiguous: at
+decode, position `t+j` is conditioned on the head's *own* earlier proposals,
+while training conditioned it on the true prefix. EAGLE answers this by training
+on the model's self-generated rollouts, not on teacher-forced text - a pipeline
+this budget does not contain. The measured ceiling for AR-Trust on this model
+stands at 1.07 (base) / 1.38 (converted).
 
 Note on the transfer path: the Colab contents API rejects uploads above roughly
 50 MB (HTTP 400) and moves at ~1 MB/s, so retraining this head on the 25M
