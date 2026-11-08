@@ -669,6 +669,13 @@ loss from 5.4 to 3.4 nats - while TPF went 0.93 -> 0.91. Better loss, no speed:
 the head learned the teacher-forced target and still proposes tokens the
 verifier rejects.
 
+Before believing that, the plumbing was tested rather than assumed: an
+identity head (proposing the model's own next-token distribution) is accepted
+once per round and leaves output bit-identical, and a recorder head confirms it
+receives the hidden state that predicts the next token. Both live in
+`tests/test_draft_head.py`; the suite is 100 tests. So the head's input is
+right and the 0.91 is a real draft-quality result, not a wiring bug.
+
 That is the third proposer attempt to fail the same way (mask-draft
 distillation, then this head twice), and the reason is now unambiguous: at
 decode, position `t+j` is conditioned on the head's *own* earlier proposals,

@@ -141,16 +141,23 @@ class _Sampler:
         self._fed_logical = [[i for i in range(self.P)] for _ in range(self.B)]
         self._install_bx_hooks()
 
+        want_hidden = self.draft_head is not None
         out = model(input_ids=input_ids, use_cache=True,
-                    past_key_values=self.cache.cache)
+                    past_key_values=self.cache.cache,
+                    output_hidden_states=want_hidden)
         self.n_forwards += 1
         self.cache.appended = self.P
         self.cache_pos = torch.arange(self.P, device=self.device).expand(
             self.B, self.P).contiguous()
         logits = out.logits[:, -1, :OUTPUT_VOCAB]
+        prefill_hidden = None
+        if want_hidden and out.hidden_states is not None:
+            prefill_hidden = out.hidden_states[-1][:, -1, :].detach()
         for r in range(self.B):
             self.rows[r].committed = self.P
             self.rows[r].predictors[self.P] = logits[r].clone()
+            if prefill_hidden is not None:
+                self.rows[r].fed_hidden[self.P] = prefill_hidden[r]
         self._fed_logical = None
 
     # -- Bx recording ---------------------------------------------------------
@@ -306,7 +313,7 @@ class _Sampler:
             fh = self.rows[r].fed_hidden
             for j, (pos, kind, _b, _t) in enumerate(feed):
                 if pos >= 0 and kind in ("clean", "noisy"):
-                    fh[pos] = hidden[r, j].detach()
+                    fh[pos + 1] = hidden[r, j].detach()
             if len(fh) > 4096:
                 for pos in sorted(fh)[:2048]:
                     fh.pop(pos, None)
@@ -459,8 +466,8 @@ class _Sampler:
     # -- AR-Trust ---------------------------------------------------------------
 
     def _head_input(self, r, C):
-        """Hidden state at logical position `C-1`, which predicts the token at C."""
-        return self.rows[r].fed_hidden.get(C - 1)
+        """Hidden state that predicts the token at `C` (fed slot `C-1`)."""
+        return self.rows[r].fed_hidden.get(C)
 
     def _run_ar(self, limit):
         rows = [r for r in range(self.B)
