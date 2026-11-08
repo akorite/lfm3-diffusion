@@ -145,6 +145,22 @@ wasted it was fixed and committed:
 | `--max-steps` break unreachable because `tokens_seen` counts physical lanes | break on steps; token count is a guard only |
 | Eval loaded weights with `strict=False` and never scored the checkpoint | records how many keys loaded |
 
+## The prompt-format bug (found mid-run, fixed, run restarted)
+
+The vendored tokenizer ships no `chat_template`, and the first run fed prompts
+as raw text. On the base model the difference is decisive:
+
+| prompt form | base model output |
+|---|---|
+| raw text `How do I stop Quora ...` | `Quora does not send me emails.` ×5 (degenerate repetition) |
+| `<\|startoftext\|>user\n…<\|im_end\|>\n<\|startoftext\|>assistant\n` | a coherent `<think>` answer about Quora's notification settings |
+
+`lfm3_dlm.tokenizer.format_chat` now spells the format out, and every prompt
+path uses it: cache builder, corpus reader, eval, held-out eval, parity sweep.
+The first run was stopped and the cache rebuilt, because training on raw-text
+prompts teaches the model to continue raw text — exactly the failure the base
+model shows.
+
 ## Early parity probe (checkpoint at 25M physical tokens, ~step 2,700)
 
 Two prompts x 16 tokens, block 8 / small 4, measured against AR greedy with no
