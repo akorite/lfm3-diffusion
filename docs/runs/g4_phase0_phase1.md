@@ -760,7 +760,13 @@ passed all of them. `export.tar.gz` was therefore extracted from
 | one forward, 7 tokens | logits `[1, 7, 128000]`, next token 55 |
 
 `tests/test_shipped_artifact.py` keeps that check, skipping when the extracted
-artifact is absent so a clean checkout stays green. Suite: 104 tests.
+artifact is absent so a clean checkout stays green.
+
+`final-weights.pt` gets the same treatment in `tests/test_shipped_weights.py`,
+read with `mmap=True` so 5.7 GB never lands in RAM: 311 tensors, embedding
+width above the mask row, and the mask row is not allclose to the pad row - the
+failure mode that would mean the diffusion row had been silently re-seeded.
+Suite: 106 tests.
 
 ## Post-training deliverables
 
@@ -807,7 +813,13 @@ passed all of them. `export.tar.gz` was therefore extracted from
 | one forward, 7 tokens | logits `[1, 7, 128000]`, next token 55 |
 
 `tests/test_shipped_artifact.py` keeps that check, skipping when the extracted
-artifact is absent so a clean checkout stays green. Suite: 104 tests.
+artifact is absent so a clean checkout stays green.
+
+`final-weights.pt` gets the same treatment in `tests/test_shipped_weights.py`,
+read with `mmap=True` so 5.7 GB never lands in RAM: 311 tensors, embedding
+width above the mask row, and the mask row is not allclose to the pad row - the
+failure mode that would mean the diffusion row had been silently re-seeded.
+Suite: 106 tests.
 
 ## Post-training deliverables
 
