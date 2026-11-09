@@ -169,9 +169,11 @@ def main(argv=None) -> int:
             cursor = 0
         batch = []
         for _ in range(args.examples_per_step):
-            # 4:1 cache:corpus keeps the CAD term fed while the teacherless
-            # rows exercise the CE fallback the OPUT phase relies on
-            if corpus and int(torch.randint(0, 5, (1,), generator=rng)) == 0:
+            # cache:corpus mix keeps the CAD term fed while teacherless rows
+            # widen the data; the ratio is a knob because more cache epochs on
+            # a small slice is what regressed the 50M checkpoint
+            ratio = int(cfg.get("cache_corpus_ratio", 4))
+            if corpus and int(torch.randint(0, ratio + 1, (1,), generator=rng)) == 0:
                 batch.append(corpus[int(torch.randint(0, len(corpus), (1,), generator=rng))])
             else:
                 # wrap per draw: a short cache must still fill the batch

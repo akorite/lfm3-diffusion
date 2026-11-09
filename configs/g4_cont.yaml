@@ -1,0 +1,34 @@
+# Continuation leg from the delivered 25M checkpoint into /content/run8.
+# Same objective, but the data mix is widened: 2:1 cache:corpus instead of 4:1,
+# because more epochs on the same 20k-row slice is exactly what regressed the
+# 50M checkpoint (TPF 1.38 -> 1.20, held-out 4.779 -> 4.816).
+
+seed: 0
+s_phys: 4096
+microbatch: 1          # 1 packed row per forward: VRAM 24-29 GB, throughput flat above
+attention_mode: block_diffusion
+use_flex_attention: true
+activation_checkpointing: false   # flex + recompute is broken in torch 2.14
+freeze_mlps: true
+unfreeze_mlp_lr: 1.0e-6
+
+lr_max: 1.2e-5
+lr_min: 2.0e-6
+w_ar: 1.0
+ce_weight: 0.2
+
+warmup_tokens: 8_000_000
+block_warmup_tokens: 8_000_000
+block_stages: [4, 8, 16, 32]
+block_size: 32
+
+total_tokens: 60_000_000
+max_steps: 5704        # 3,000 steps past the 2,704-step delivered checkpoint
+warmup_steps: 0
+
+phase1_boundary_tokens: 60_000_000   # physical tokens (~2x corpus at P=R)
+oput_ratio: 0.0        # phase-2 OPUT doubles some steps; off for the budget run
+
+checkpoint_interval_tokens: 4_000_000
+cache_corpus_ratio: 2     # wider data mix than the 4:1 the delivered run used   # ~450 steps: a chunked run loses <=10 min
+checkpoint_dir: checkpoints/g4_run
