@@ -31,10 +31,11 @@ def test_evaluation_numbers_match_artifacts():
     ppl_t = _read("ppl_trained.json")
     ppl_b = _read("ppl_base.json")
 
-    card = (ROOT / "MODEL_CARD.md").read_text()
-    for value in (trained["heldout_loss"], base["heldout_loss"],
-                  ppl_t["perplexity"], ppl_b["perplexity"]):
-        assert str(value) in card, f"{value} quoted in the evidence but not the card"
+    for name in ("MODEL_CARD.md", "STATUS.md"):
+        doc = (ROOT / name).read_text()
+        for value in (trained["heldout_loss"], base["heldout_loss"],
+                      ppl_t["perplexity"], ppl_b["perplexity"]):
+            assert str(value) in doc, f"{value} quoted in the evidence but not {name}"
 
 
 def test_parity_and_throughput_match_artifacts():
@@ -54,6 +55,6 @@ def test_parity_and_throughput_match_artifacts():
 
 
 def test_no_unfilled_placeholders_in_user_docs():
-    for name in ("MODEL_CARD.md", "README.md"):
+    for name in ("MODEL_CARD.md", "README.md", "STATUS.md"):
         text = (ROOT / name).read_text()
         assert "TODO" not in text, f"{name} ships a TODO"
