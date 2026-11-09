@@ -743,6 +743,25 @@ Closing that gap is a training-volume problem - DiffuLLaMA needed 30-70B tokens
 to convert a 7B model, this run used 25M - not a decoding or recipe setting
 left untested.
 
+
+## The shipped artifact verified as shipped
+
+Every earlier export check ran on the VM against `/content/export` — the
+directory *before* it was tarred. A truncated or repacked tarball would have
+passed all of them. `export.tar.gz` was therefore extracted from
+`lfm3-artifacts/` and loaded on CPU from those bytes:
+
+| check | value |
+|---|---|
+| tarball md5 | `34391cc0c44a44f7c6b28ba17b9d0981f` |
+| `Lfm3ForCausalLM.from_pretrained` | loads, 24 layers, vocab 128000, bf16 |
+| mask row 125033 vs pad row 124893 | not allclose |
+| config | `model_type: lfm3`, `architectures: [Lfm3ForCausalLM]`, `attention_mode: causal` |
+| one forward, 7 tokens | logits `[1, 7, 128000]`, next token 55 |
+
+`tests/test_shipped_artifact.py` keeps that check, skipping when the extracted
+artifact is absent so a clean checkout stays green. Suite: 104 tests.
+
 ## Post-training deliverables
 
 ## Closure
@@ -770,6 +789,25 @@ rate, and no learned proposer moved AR-Trust past 1.38 across four designs.
 Closing that gap is a training-volume problem - DiffuLLaMA needed 30-70B tokens
 to convert a 7B model, this run used 25M - not a decoding or recipe setting
 left untested.
+
+
+## The shipped artifact verified as shipped
+
+Every earlier export check ran on the VM against `/content/export` — the
+directory *before* it was tarred. A truncated or repacked tarball would have
+passed all of them. `export.tar.gz` was therefore extracted from
+`lfm3-artifacts/` and loaded on CPU from those bytes:
+
+| check | value |
+|---|---|
+| tarball md5 | `34391cc0c44a44f7c6b28ba17b9d0981f` |
+| `Lfm3ForCausalLM.from_pretrained` | loads, 24 layers, vocab 128000, bf16 |
+| mask row 125033 vs pad row 124893 | not allclose |
+| config | `model_type: lfm3`, `architectures: [Lfm3ForCausalLM]`, `attention_mode: causal` |
+| one forward, 7 tokens | logits `[1, 7, 128000]`, next token 55 |
+
+`tests/test_shipped_artifact.py` keeps that check, skipping when the extracted
+artifact is absent so a clean checkout stays green. Suite: 104 tests.
 
 ## Post-training deliverables
 
