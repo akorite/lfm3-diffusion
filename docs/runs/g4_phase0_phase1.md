@@ -792,6 +792,37 @@ is a net benchmark gain, with hellaswag level.
 Hosting note: `akorite/lfm3-1.7b-diffusion` (private) now carries the export, so
 a fresh GPU VM pulls it in ~7 seconds instead of 45 minutes of chunked upload.
 
+
+## Continuation leg (wider data mix): measured worse, not shipped
+
+The delivered checkpoint was 4:1 cache:corpus over a 20k-row slice, and
+25M -> 50M on that slice regressed. This leg changed the axis instead of the
+step count: a *fresh* 4M-token cache, a 2:1 mix, warm start from the delivered
+weights, 1,200 steps at lr 1.2e-5 -> 2e-6 (3.58M tokens, ~11 min of training
+after the cache build).
+
+| checkpoint | parity (16 prompts) | TPF | sample |
+|---|---|---|---|
+| delivered (25M tokens) | **1.000** | **1.38** | coherent |
+| leg 1,200 steps, 2:1 mix | **0.885** (min 0.167) | 1.20-1.27 | coherent |
+
+Both axes are worse, and the parity drop is the decisive one: AR-Trust commits
+the verifier's own argmax, so parity can only fall when the model's own near
+ties start flipping under bfloat16 - the same calibration effect that took the
+RL leg to 0.833. A model that is less sure of itself is a worse model, and this
+one is also slower.
+
+So the leg is **not shipped**: `final-weights.pt` and the Hub repo still carry
+the 25M checkpoint. The finding is recorded because it rules out "widen the data
+mix" as a cheap fix, which was the last untested axis inside a Colab budget.
+
+Operational note, learned the hard way: Colab sessions were reaped mid-run four
+times (~50-60 min each), and trainer checkpoints live only on the VM. The
+delivered artifacts survive because they were pushed to
+`akorite/lfm3-1.7b-diffusion` (model) and `akorite/lfm3-1.7b-diffusion-train`
+(dataset) - the export now pulls in ~7 seconds on a fresh VM instead of a
+45-minute chunked upload.
+
 ## Post-training deliverables
 
 ## Closure
@@ -868,6 +899,37 @@ is a net benchmark gain, with hellaswag level.
 
 Hosting note: `akorite/lfm3-1.7b-diffusion` (private) now carries the export, so
 a fresh GPU VM pulls it in ~7 seconds instead of 45 minutes of chunked upload.
+
+
+## Continuation leg (wider data mix): measured worse, not shipped
+
+The delivered checkpoint was 4:1 cache:corpus over a 20k-row slice, and
+25M -> 50M on that slice regressed. This leg changed the axis instead of the
+step count: a *fresh* 4M-token cache, a 2:1 mix, warm start from the delivered
+weights, 1,200 steps at lr 1.2e-5 -> 2e-6 (3.58M tokens, ~11 min of training
+after the cache build).
+
+| checkpoint | parity (16 prompts) | TPF | sample |
+|---|---|---|---|
+| delivered (25M tokens) | **1.000** | **1.38** | coherent |
+| leg 1,200 steps, 2:1 mix | **0.885** (min 0.167) | 1.20-1.27 | coherent |
+
+Both axes are worse, and the parity drop is the decisive one: AR-Trust commits
+the verifier's own argmax, so parity can only fall when the model's own near
+ties start flipping under bfloat16 - the same calibration effect that took the
+RL leg to 0.833. A model that is less sure of itself is a worse model, and this
+one is also slower.
+
+So the leg is **not shipped**: `final-weights.pt` and the Hub repo still carry
+the 25M checkpoint. The finding is recorded because it rules out "widen the data
+mix" as a cheap fix, which was the last untested axis inside a Colab budget.
+
+Operational note, learned the hard way: Colab sessions were reaped mid-run four
+times (~50-60 min each), and trainer checkpoints live only on the VM. The
+delivered artifacts survive because they were pushed to
+`akorite/lfm3-1.7b-diffusion` (model) and `akorite/lfm3-1.7b-diffusion-train`
+(dataset) - the export now pulls in ~7 seconds on a fresh VM instead of a
+45-minute chunked upload.
 
 ## Post-training deliverables
 
