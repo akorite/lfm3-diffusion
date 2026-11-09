@@ -806,6 +806,13 @@ after the cache build).
 | delivered (25M tokens) | **1.000** | **1.38** | coherent |
 | leg 1,200 steps, 2:1 mix | **0.885** (min 0.167) | 1.20-1.27 | coherent |
 
+The warm start is confirmed by tensor comparison rather than by trusting the
+flag (`--init-from` loads with `strict=False`, which is silent on a mismatch):
+`leg-1200.pt` differs from the delivered weights in 156 of 311 tensors and
+leaves 155 bit-identical, with conv deltas around 1e-4 - a 1,200-step nudge from
+the delivered point, not a run from the base model, which would have moved every
+tensor including the embeddings (they are identical here).
+
 Both axes are worse, and the parity drop is the decisive one: AR-Trust commits
 the verifier's own argmax, so parity can only fall when the model's own near
 ties start flipping under bfloat16 - the same calibration effect that took the
@@ -913,6 +920,13 @@ after the cache build).
 |---|---|---|---|
 | delivered (25M tokens) | **1.000** | **1.38** | coherent |
 | leg 1,200 steps, 2:1 mix | **0.885** (min 0.167) | 1.20-1.27 | coherent |
+
+The warm start is confirmed by tensor comparison rather than by trusting the
+flag (`--init-from` loads with `strict=False`, which is silent on a mismatch):
+`leg-1200.pt` differs from the delivered weights in 156 of 311 tensors and
+leaves 155 bit-identical, with conv deltas around 1e-4 - a 1,200-step nudge from
+the delivered point, not a run from the base model, which would have moved every
+tensor including the embeddings (they are identical here).
 
 Both axes are worse, and the parity drop is the decisive one: AR-Trust commits
 the verifier's own argmax, so parity can only fall when the model's own near
