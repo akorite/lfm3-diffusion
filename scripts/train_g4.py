@@ -116,6 +116,8 @@ def main(argv=None) -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--examples-per-step", type=int, default=4)
     ap.add_argument("--max-steps", type=int, default=0)
+    ap.add_argument("--init-from", default=None,
+                    help="bare state dict to warm-start from (no optimizer state)")
     ap.add_argument("--resume", action="store_true",
                     help="continue from the newest checkpoint under --out")
     args = ap.parse_args(argv)
@@ -133,6 +135,12 @@ def main(argv=None) -> int:
     if args.max_steps:
         # the LR schedule must anneal to lr_min at the step we actually stop
         cfg["max_steps"] = args.max_steps
+    if args.init_from:
+        state = torch.load(args.init_from, map_location="cpu")
+        if isinstance(state, dict) and "model" in state:
+            state = state["model"]
+        model.load_state_dict(state, strict=False)
+        print(f"warm-started from {args.init_from}", flush=True)
     trainer = DLMTrainer(model, cfg, device=device)
     cache = TeacherCache(args.cache, cfg.get("s_phys", 4096),
                          cfg.get("block_size", 32), cfg.get("n_masks", 2))
