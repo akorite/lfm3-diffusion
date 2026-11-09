@@ -1,29 +1,47 @@
 """The artifact in `lfm3-artifacts/` must be usable, not just transferable.
 
 Every other export check ran on the VM against the directory *before* it was
-tarred. A truncated or repacked tarball would still pass those. This one loads
-the shipped bytes on CPU and asserts the same properties, then runs one
-forward so a loadable-but-broken artifact fails too.
+tarred. A truncated or repacked tarball would still pass those. This one takes
+the shipped bytes, extracts them itself, loads them on CPU and runs one forward,
+so a loadable-but-broken artifact fails too.
 
-Skips when the artifact is absent, so a clean checkout stays green.
+It extracts rather than trusting an out-of-band directory: the point is to
+validate the tarball, so the tarball is the input. Skips when the artifact is
+absent, so a clean checkout stays green.
 """
-import json
 import os
+import tarfile
+import tempfile
 from pathlib import Path
 
 import pytest
 import torch
 
 MASK_ROW, PAD_ROW = 125_033, 124_893
-ART = Path(os.environ.get("LFM3_ARTIFACT", "/home/ubuntu/tmp-lfm3/artefact/export"))
+ARTIFACTS = Path(os.environ.get("LFM3_ARTIFACTS_DIR", "/home/ubuntu/lfm3-artifacts"))
+TARBALL = ARTIFACTS / "export.tar.gz"
 
 
-@pytest.mark.skipif(not (ART / "model.safetensors").exists(),
-                    reason="shipped artifact not extracted on this host")
-def test_shipped_export_loads_and_asserts():
+def _skip_unless_shipped():
+    if not TARBALL.exists():
+        pytest.skip(f"{TARBALL} not present")
+
+
+@pytest.fixture(scope="module")
+def export_dir():
+    _skip_unless_shipped()
+    with tempfile.TemporaryDirectory() as tmp:
+        with tarfile.open(TARBALL) as tf:
+            tf.extractall(tmp, filter="data")
+        dirs = [p for p in Path(tmp).iterdir() if (p / "model.safetensors").exists()]
+        assert dirs, f"{TARBALL.name} contains no model.safetensors"
+        yield dirs[0]
+
+
+def test_shipped_export_loads_and_asserts(export_dir):
     from lfm3_dlm import Lfm3ForCausalLM
 
-    model = Lfm3ForCausalLM.from_pretrained(str(ART), dtype=torch.bfloat16,
+    model = Lfm3ForCausalLM.from_pretrained(str(export_dir), dtype=torch.bfloat16,
                                             low_cpu_mem_usage=True)
     emb = model.model.embed_tokens.weight
     assert len(model.model.layers) == 24
