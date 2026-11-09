@@ -89,15 +89,16 @@ Measured on the shipped checkpoint, base model scored identically for comparison
 
 | metric | base `LiquidAI/LFM3-1.7B` | this checkpoint |
 |---|---|---|
-| arc_easy acc (lm-eval, n=400) | 0.420 | **0.533** |
-| piqa acc | 0.590 | **0.675** |
-| hellaswag acc | 0.405 | 0.398 |
+| arc_easy acc (lm-eval, n=1000) | 0.395 | **0.545** |
+| piqa acc | 0.604 | **0.669** |
+| hellaswag acc | 0.386 | 0.384 |
 | causal next-token ppl (31 rows) | 4.419 | **4.396** |
 | held-out diffusion loss (31 rows) | 15.717 | **4.779** |
 
-`ar_trust` decode reproduces AR greedy exactly, so decoding costs no accuracy;
-the benchmark movement above is the conversion's own effect and sits inside or
-above the ~0.025 standard error at this sample size. No per-family benchmark
+`ar_trust` decode reproduces AR greedy exactly, so decoding costs no accuracy.
+At n=1000 per task the standard error is ~0.0155: arc_easy is +15.0pp (~9.7
+sigma), piqa +6.5pp (~4.4 sigma), and hellaswag is level (-0.2pp acc, +0.4pp
+acc_norm). The conversion is a net benchmark gain, not merely neutral. No per-family benchmark
 sweep (math/code/IFEval/BFCL) was run for this checkpoint.
 
 

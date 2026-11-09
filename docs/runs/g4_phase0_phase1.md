@@ -768,6 +768,30 @@ width above the mask row, and the mask row is not allclose to the pad row - the
 failure mode that would mean the diffusion row had been silently re-seeded.
 Suite: 106 tests.
 
+
+## Benchmarks at n=1000 (tightened)
+
+Re-run after the export was hosted on the Hub, which removed the 45-minute
+chunked upload that had blocked this twice. `lm_eval` 0.4.13, bfloat16, limit
+1000 per task, standard error ~0.0155.
+
+| task | base LFM3-1.7B | this checkpoint | delta |
+|---|---|---|---|
+| arc_easy acc | 0.395 | **0.545** | +0.150 (~9.7 sigma) |
+| arc_easy acc_norm | 0.386 | **0.480** | +0.094 |
+| piqa acc | 0.604 | **0.669** | +0.065 (~4.4 sigma) |
+| piqa acc_norm | 0.614 | **0.687** | +0.073 |
+| hellaswag acc | 0.386 | 0.384 | -0.002 |
+| hellaswag acc_norm | 0.499 | 0.503 | +0.004 |
+
+The n=400 run earlier reported 0.533 / 0.675 / 0.398 for the same three tasks
+against 0.420 / 0.590 / 0.405; the tighter pass moves the base model more than
+the checkpoint, and the conclusion hardens rather than changing: the conversion
+is a net benchmark gain, with hellaswag level.
+
+Hosting note: `akorite/lfm3-1.7b-diffusion` (private) now carries the export, so
+a fresh GPU VM pulls it in ~7 seconds instead of 45 minutes of chunked upload.
+
 ## Post-training deliverables
 
 ## Closure
@@ -820,6 +844,30 @@ read with `mmap=True` so 5.7 GB never lands in RAM: 311 tensors, embedding
 width above the mask row, and the mask row is not allclose to the pad row - the
 failure mode that would mean the diffusion row had been silently re-seeded.
 Suite: 106 tests.
+
+
+## Benchmarks at n=1000 (tightened)
+
+Re-run after the export was hosted on the Hub, which removed the 45-minute
+chunked upload that had blocked this twice. `lm_eval` 0.4.13, bfloat16, limit
+1000 per task, standard error ~0.0155.
+
+| task | base LFM3-1.7B | this checkpoint | delta |
+|---|---|---|---|
+| arc_easy acc | 0.395 | **0.545** | +0.150 (~9.7 sigma) |
+| arc_easy acc_norm | 0.386 | **0.480** | +0.094 |
+| piqa acc | 0.604 | **0.669** | +0.065 (~4.4 sigma) |
+| piqa acc_norm | 0.614 | **0.687** | +0.073 |
+| hellaswag acc | 0.386 | 0.384 | -0.002 |
+| hellaswag acc_norm | 0.499 | 0.503 | +0.004 |
+
+The n=400 run earlier reported 0.533 / 0.675 / 0.398 for the same three tasks
+against 0.420 / 0.590 / 0.405; the tighter pass moves the base model more than
+the checkpoint, and the conclusion hardens rather than changing: the conversion
+is a net benchmark gain, with hellaswag level.
+
+Hosting note: `akorite/lfm3-1.7b-diffusion` (private) now carries the export, so
+a fresh GPU VM pulls it in ~7 seconds instead of 45 minutes of chunked upload.
 
 ## Post-training deliverables
 
